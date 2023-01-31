@@ -296,7 +296,9 @@ for i in range (LOOP_CYCLES):
                 
                 kp1, desc1, kp_numb1 = RootSift(img1, TEMP_DIR, 8000)
                 kp2, desc2, kp_numb2 = RootSift(img2, TEMP_DIR, 8000)
-                opencv_matches = BrForce(desc1, desc2, 'Lowe_ratio_test', 'L2', True, 'intersection', print_debug = False, ratio_thresh=0.8)
+                print("BrForce")
+                opencv_matches = BrForce(desc1, desc2, 'without_Lowe_ratio_test', 'L2', False, 'intersection', print_debug = False, ratio_thresh=0.8)
+                print("finish")
 
                 matches_matrix = np.zeros((len(opencv_matches), 2))
                 for l in range(0,len(opencv_matches)):
