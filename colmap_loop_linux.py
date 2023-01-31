@@ -17,14 +17,14 @@ from pyquaternion import quaternion
 from scipy.spatial.transform import Rotation as R
 from scipy import linalg
 
-DEBUG = True
+DEBUG = False
 MAX_RATIO = 0.90
 MIN_RATIO = 0
 SLEEP_TIME = 1
 LOOP_CYCLES = 1000000
 COLMAP_EXE_PATH = Path(r"/colmap/build/src/exe")
 IMGS_FROM_SERVER = Path(r"/home/imgs")
-MAX_N_FEATURES = "1000"
+MAX_N_FEATURES = "100"
 
 
 ### FUNCTIONS
@@ -237,6 +237,7 @@ ref_matches = []
 processed_imgs = []
 pointer = 0
 delta = 0
+ended_first_colmap_loop = False
 
 # Manage output folders
 if not os.path.exists(TEMP_DIR):
@@ -252,10 +253,6 @@ else:
     os.makedirs(TEMP_DIR / "pair")
     os.makedirs(KEYFRAMES_DIR)
     os.makedirs(OUT_FOLDER)
-
-######## Prepare configuration file
-#######with open(CURRENT_DIR / "lib" / "conf.ini", 'w') as conf_file, open(CURRENT_DIR / "lib" / "template.ini", 'r') as template_file:
-#######    conf_file.write("\n")
 
 
 # Main loop
@@ -337,19 +334,26 @@ for i in range (LOOP_CYCLES):
                 processed_imgs.append(img)
 
     kfrms = os.listdir(KEYFRAMES_DIR)
-    if len(kfrms) > 5 and newer_imgs == True:
+    if len(kfrms) >= 3 and newer_imgs == True:
         # Incremental reconstruction
         if DEBUG == False:
             subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE], stdout=subprocess.DEVNULL)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--ImageReader.single_camera", "1", "SiftExtraction.max_num_features", MAX_N_FEATURES], stdout=subprocess.DEVNULL)
+            if ended_first_colmap_loop == True:
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift.ini"], stdout=subprocess.DEVNULL)
+            elif ended_first_colmap_loop == False:
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"], stdout=subprocess.DEVNULL)
+                ended_first_colmap_loop = True
             subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "1"], stdout=subprocess.DEVNULL)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--output_path", OUT_FOLDER, "--Mapper.multiple_models", "0"], stdout=subprocess.DEVNULL)
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"], stdout=subprocess.DEVNULL)
             subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
         elif DEBUG == True:
             subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE])
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--ImageReader.single_camera", "1", "SiftExtraction.max_num_features", MAX_N_FEATURES])
+            if ended_first_colmap_loop == True:
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift.ini"])
+            elif ended_first_colmap_loop == False:
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"])
+                ended_first_colmap_loop = True
             subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "1"])
-            #subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--output_path", OUT_FOLDER, "--Mapper.multiple_models", "0"])
             subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
             subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"])
         
