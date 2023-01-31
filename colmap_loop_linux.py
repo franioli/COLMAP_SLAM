@@ -18,12 +18,12 @@ from scipy.spatial.transform import Rotation as R
 from scipy import linalg
 
 DEBUG = False
-MAX_RATIO = 0.90
+MAX_RATIO = 0.70
 MIN_RATIO = 0
 SLEEP_TIME = 1
 LOOP_CYCLES = 1000000
 COLMAP_EXE_PATH = Path(r"/colmap/build/src/exe")
-IMGS_FROM_SERVER = Path(r"/home/imgs")
+IMGS_FROM_SERVER = Path(r"/home/luca/Scrivania/3DOM/Github_lcmrl/Server_Connection/c++_send_images/imgs")
 MAX_N_FEATURES = "100"
 
 
@@ -297,7 +297,7 @@ for i in range (LOOP_CYCLES):
                 kp1, desc1, kp_numb1 = RootSift(img1, TEMP_DIR, 8000)
                 kp2, desc2, kp_numb2 = RootSift(img2, TEMP_DIR, 8000)
                 print("BrForce")
-                opencv_matches = BrForce(desc1, desc2, 'without_Lowe_ratio_test', 'L2', False, 'intersection', print_debug = False, ratio_thresh=0.8)
+                opencv_matches = BrForce(desc1, desc2, 'Lowe_ratio_test', 'L2', True, 'intersection', print_debug = False, ratio_thresh=0.8)
                 print("finish")
 
                 matches_matrix = np.zeros((len(opencv_matches), 2))
@@ -345,7 +345,7 @@ for i in range (LOOP_CYCLES):
             elif ended_first_colmap_loop == False:
                 subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"], stdout=subprocess.DEVNULL)
                 ended_first_colmap_loop = True
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "1"], stdout=subprocess.DEVNULL)
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "2"], stdout=subprocess.DEVNULL)
             subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"], stdout=subprocess.DEVNULL)
             subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
         elif DEBUG == True:
@@ -355,7 +355,7 @@ for i in range (LOOP_CYCLES):
             elif ended_first_colmap_loop == False:
                 subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"])
                 ended_first_colmap_loop = True
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "1"])
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "2"])
             subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
             subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"])
         
