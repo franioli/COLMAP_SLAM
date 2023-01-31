@@ -1,5 +1,10 @@
 # pip install --upgrade pip
 # pip3 install opencv-contrib-python-headless (for docker, no GUI)
+# pip3 install pyquaternion
+# pip install scipy
+
+# run in docker "colmap_opencv"
+# python3 colmap_loop_linux.py
 
 import subprocess
 import time
@@ -12,12 +17,14 @@ from pyquaternion import quaternion
 from scipy.spatial.transform import Rotation as R
 from scipy import linalg
 
+DEBUG = True
 MAX_RATIO = 0.90
 MIN_RATIO = 0
 SLEEP_TIME = 1
 LOOP_CYCLES = 1000000
 COLMAP_EXE_PATH = Path(r"/colmap/build/src/exe")
 IMGS_FROM_SERVER = Path(r"/home/imgs")
+MAX_N_FEATURES = "1000"
 
 
 ### FUNCTIONS
@@ -231,7 +238,7 @@ processed_imgs = []
 pointer = 0
 delta = 0
 
-
+# Manage output folders
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
     os.makedirs(TEMP_DIR / "pair")
@@ -246,6 +253,12 @@ else:
     os.makedirs(KEYFRAMES_DIR)
     os.makedirs(OUT_FOLDER)
 
+######## Prepare configuration file
+#######with open(CURRENT_DIR / "lib" / "conf.ini", 'w') as conf_file, open(CURRENT_DIR / "lib" / "template.ini", 'r') as template_file:
+#######    conf_file.write("\n")
+
+
+# Main loop
 for i in range (LOOP_CYCLES):
     print("LOOP: ", i)
     # Check on tie points to eliminate stationary kpts
@@ -273,9 +286,15 @@ for i in range (LOOP_CYCLES):
                 shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), TEMP_DIR / "pair" / "{}".format(img1))
                 shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), TEMP_DIR / "pair" / "{}".format(img2))
                 
-                subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", TEMP_DIR / "db.db"])
-                subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair"])
-                subprocess.run(["python3", CURRENT_DIR / "RootSIFT.py", "--Path", TEMP_DIR / "db.db", "--Output", TEMP_DIR])
+                if DEBUG == False:
+                    subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", TEMP_DIR / "db.db"], stdout=subprocess.DEVNULL)
+                    subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", MAX_N_FEATURES], stdout=subprocess.DEVNULL)
+                    subprocess.run(["python3", CURRENT_DIR / "lib" / "RootSIFT.py", "--Path", TEMP_DIR / "db.db", "--Output", TEMP_DIR], stdout=subprocess.DEVNULL)
+                elif DEBUG == True:
+                    subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", TEMP_DIR / "db.db"])
+                    subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", MAX_N_FEATURES])
+                    subprocess.run(["python3", CURRENT_DIR / "lib" / "RootSIFT.py", "--Path", TEMP_DIR / "db.db", "--Output", TEMP_DIR])
+
                 os.remove(TEMP_DIR / "db.db")
                 
                 kp1, desc1, kp_numb1 = RootSift(img1, TEMP_DIR, 8000)
@@ -320,12 +339,22 @@ for i in range (LOOP_CYCLES):
     kfrms = os.listdir(KEYFRAMES_DIR)
     if len(kfrms) > 5 and newer_imgs == True:
         # Incremental reconstruction
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE])
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--ImageReader.single_camera", "1"])
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "exhaustive_matcher", "--database_path", DATABASE])
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--output_path", OUT_FOLDER])
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"])
+        if DEBUG == False:
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE], stdout=subprocess.DEVNULL)
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--ImageReader.single_camera", "1", "SiftExtraction.max_num_features", MAX_N_FEATURES], stdout=subprocess.DEVNULL)
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "1"], stdout=subprocess.DEVNULL)
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--output_path", OUT_FOLDER, "--Mapper.multiple_models", "0"], stdout=subprocess.DEVNULL)
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
+        elif DEBUG == True:
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE])
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--ImageReader.single_camera", "1", "SiftExtraction.max_num_features", MAX_N_FEATURES])
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "1"])
+            #subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--database_path", DATABASE, "--image_path", KEYFRAMES_DIR, "--output_path", OUT_FOLDER, "--Mapper.multiple_models", "0"])
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"])
+        
         lines = ExportCameras(OUT_FOLDER / "images.txt")
+        print("EXPORTED CAMERAS POS")
 
         with open(OUT_FOLDER / "loc.txt", 'w') as file:
             for line in lines:

@@ -1,3 +1,5 @@
+# conda activate pillow
+# python plot.py # run after running colmap loop
 # https://stackoverflow.com/questions/4098131/how-to-update-a-plot-in-matplotlib
 import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
