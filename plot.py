@@ -1,6 +1,6 @@
 # conda activate pillow
-# python plot.py # run after running colmap loop
 # https://stackoverflow.com/questions/4098131/how-to-update-a-plot-in-matplotlib
+
 import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 from matplotlib import interactive
@@ -8,7 +8,7 @@ import numpy as np
 import os
 import time
 
-
+SLEEP = 0.5
 condition = True
 
 while condition == True:
@@ -40,11 +40,10 @@ while condition == True:
             ax.set_zticks(np.arange(min([min(X),min(Y),min(Z)]), max([max(X),max(Y),max(Z)]), 1))
             ax.view_init(azim=0, elev=90)
             plt.show(block=False)
-            #plt.draw()
-            plt.pause(1)
+            plt.pause(SLEEP)
             plt.clf()
-            #plt.close("all")
+
     else:
-        time.sleep(1)
+        time.sleep(SLEEP)
 
 
