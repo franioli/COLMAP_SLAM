@@ -179,25 +179,22 @@ def NextImg(last_img):
         next_img = "{}".format(last_img+1)
     return next_img
 
-def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, TEMP_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, pointer, delta, newer_imgs, last_img):
+def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, pointer, delta, newer_imgs, last_img):
     if STATIC_IMG_REJECTION_METHOD == 'root_sift':
+
+        TEMP_DIR = CURRENT_DIR / "temp"
 
         shutil.rmtree(TEMP_DIR / "pair")     
         os.makedirs(TEMP_DIR / "pair")
         shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), TEMP_DIR / "pair" / "{}".format(img1))
         shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), TEMP_DIR / "pair" / "{}".format(img2))
 
-        if DEBUG == False:
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", TEMP_DIR / "db.db"], stdout=subprocess.DEVNULL)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", MAX_N_FEATURES], stdout=subprocess.DEVNULL)
-            #subprocess.run(["python3", CURRENT_DIR / "lib" / "RootSIFT.py", "--Path", TEMP_DIR / "db.db", "--Output", TEMP_DIR], stdout=subprocess.DEVNULL)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", TEMP_DIR / "db.db", "--SequentialMatching.overlap", "1"], stdout=subprocess.DEVNULL)
-        elif DEBUG == True:
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", TEMP_DIR / "db.db"])
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", MAX_N_FEATURES])
-            #subprocess.run(["python3", CURRENT_DIR / "lib" / "RootSIFT.py", "--Path", TEMP_DIR / "db.db", "--Output", TEMP_DIR])
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", TEMP_DIR / "db.db", "--SequentialMatching.overlap", "1"])
-        
+        subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", TEMP_DIR / "db.db"], stdout=subprocess.DEVNULL)
+        subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", MAX_N_FEATURES], stdout=subprocess.DEVNULL)
+        #subprocess.run(["python3", CURRENT_DIR / "lib" / "RootSIFT.py", "--Path", TEMP_DIR / "db.db", "--Output", TEMP_DIR], stdout=subprocess.DEVNULL)
+        subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", TEMP_DIR / "db.db", "--SequentialMatching.overlap", "1"], stdout=subprocess.DEVNULL)
+        subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_for_static_rejection.ini"], stdout=subprocess.DEVNULL)
+
         #kp1, desc1, kp_numb1 = RootSift(img1, TEMP_DIR, 8000)
         #kp2, desc2, kp_numb2 = RootSift(img2, TEMP_DIR, 8000)
         #opencv_matches = BrForce(desc1, desc2, 'Lowe_ratio_test', 'L2', True, 'intersection', print_debug = False, ratio_thresh=0.8
@@ -213,7 +210,6 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, T
         if len(matches.keys()) != 0:
             key = list(matches.keys())[0]
             matches_matrix = matches[key]
-
 
             if ref_matches == []:
                 ref_matches = matches_matrix
@@ -233,7 +229,7 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, T
                 control_ratio = len(intersection) / len(vec_ref)
                 print("control_ratio", control_ratio)
 
-                if control_ratio < MAX_RATIO and control_ratio > MIN_RATIO:
+                if control_ratio < MAX_RATIO and control_ratio > MIN_RATIO and os.path.exists(TEMP_DIR / "0"):
                     #shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}".format(img1))
                     shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
                     print("\n.. added img\n")

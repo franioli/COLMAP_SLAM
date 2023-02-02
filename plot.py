@@ -38,11 +38,13 @@ while condition == True:
             ax.set_xticks(np.arange(min([min(X),min(Y),min(Z)]), max([max(X),max(Y),max(Z)]), 1))
             ax.set_yticks(np.arange(min([min(X),min(Y),min(Z)]), max([max(X),max(Y),max(Z)]), 1))
             ax.set_zticks(np.arange(min([min(X),min(Y),min(Z)]), max([max(X),max(Y),max(Z)]), 1))
-            ax.view_init(azim=0, elev=90)
+            #ax.view_init(azim=0, elev=90)
             plt.show(block=False)
             plt.pause(SLEEP)
             plt.clf()
             
+
+
             Total_imgs = len(os.listdir("./colmap_imgs"))
             N_oriented_cameras = len(X)
             print("Total: {}  Oriented: {}".format(Total_imgs, N_oriented_cameras))
