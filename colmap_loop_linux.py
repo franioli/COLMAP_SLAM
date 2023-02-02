@@ -22,11 +22,12 @@ from scipy.spatial.transform import Rotation as R
 from scipy import linalg
 from lib import database
 from lib import static_rejection
+from lib import export_cameras
 
 
 STATIC_IMG_REJECTION_METHOD = 'radiometric' # 'radiometric' or 'root_sift'
 DEBUG = False
-SLEEP_TIME = 1
+SLEEP_TIME = 1/5
 LOOP_CYCLES = 1000000
 COLMAP_EXE_PATH = Path(r"/colmap/build/src/exe")
 IMGS_FROM_SERVER = Path(r"/home/luca/Scrivania/3DOM/Github_lcmrl/Server_Connection/c++_send_images/imgs") #Path("./imgs")
@@ -34,59 +35,7 @@ MAX_N_FEATURES = "100"
 
 
 ### FUNCTIONS
-def ExportCameras(external_cameras_path):
-    lines= []
-    lines.append("IMAGE_ID X Y Z NX NY NZ FOCAL_LENGTH EULER_ROTATION_MATRIX\n")
-    d = {}
-    k = 0
-    n_images = 0
-    
-    with open(external_cameras_path,'r') as file :
-        for line in file:
-            k = k+1
-            line = line[:-1]
-            try:
-                first_elem, waste = line.split(' ', 1)
-                if first_elem == "#":
-                    print(first_elem)
-                elif k%2 != 0:
-                    image_id, qw, qx, qy, qz, tx, ty, tz, camera_id, name = line.split(" ", 9)
-                    q = np.array([float(qw), float(qx), float(qy), float(qz)])
-                    t = np.array([[float(tx)],[float(ty)],[float(tz)]])
-                    q_matrix = quaternion.Quaternion(q).transformation_matrix
-                    q_matrix = q_matrix[0:3,0:3]
-                    camera_location = np.dot(-q_matrix.transpose(),t)
-                    n_images = n_images + 1
-                    camera_direction = np.dot(q_matrix.transpose(),np.array([[0],[0],[1]]))#*-1
-                    lines.append('{} {} {} {} {} {} {} 50 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}\n'.format(
-                                                name,
-                                                camera_location[0,0],
-                                                camera_location[1,0],
-                                                camera_location[2,0],
-                                                camera_direction[0,0],
-                                                camera_direction[1,0],
-                                                camera_direction[2,0],
-                                                q_matrix[0,0],
-                                                q_matrix[0,1],
-                                                q_matrix[0,2],
-                                                "0",
-                                                q_matrix[1,0],
-                                                q_matrix[1,1],
-                                                q_matrix[1,2],
-                                                "0",
-                                                q_matrix[2,0],
-                                                q_matrix[2,1],
-                                                q_matrix[2,2],
-                                                "0",
-                                                "0",
-                                                "0",
-                                                "0",
-                                                "1"
-                                                ))
-        
-            except:
-                print("Empty line")
-    return lines
+
 
 
 ### MAIN STARTS HERE
@@ -148,7 +97,7 @@ for i in range (LOOP_CYCLES):
 
 
     kfrms = os.listdir(KEYFRAMES_DIR)
-    if len(kfrms) >= 5 and newer_imgs == True:
+    if len(kfrms) >= 10 and newer_imgs == True:
         # Incremental reconstruction
         if DEBUG == False:
             if os.path.exists(DATABASE): subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE], stdout=subprocess.DEVNULL)
@@ -157,9 +106,13 @@ for i in range (LOOP_CYCLES):
             elif ended_first_colmap_loop == False:
                 subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"], stdout=subprocess.DEVNULL)
                 ended_first_colmap_loop = True
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "1", "--SequentialMatching.quadratic_overlap", "1"], stdout=subprocess.DEVNULL)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"], stdout=subprocess.DEVNULL)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "10", "--SequentialMatching.quadratic_overlap", "1"], stdout=subprocess.DEVNULL)
+            if os.path.exists(OUT_FOLDER / "0"):
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"], stdout=subprocess.DEVNULL)
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER, "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
+            else:
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_first_loop.ini"], stdout=subprocess.DEVNULL)
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
         
         elif DEBUG == True:
             if os.path.exists(DATABASE): subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE])
@@ -168,11 +121,15 @@ for i in range (LOOP_CYCLES):
             elif ended_first_colmap_loop == False:
                 subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"])
                 ended_first_colmap_loop = True
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "1", "--SequentialMatching.quadratic_overlap", "1"])
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"])
+            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "10", "--SequentialMatching.quadratic_overlap", "1"])
+            if os.path.exists(OUT_FOLDER / "0"):
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER, "--output_path", OUT_FOLDER, "--output_type", "TXT"])
+            else:
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_first_loop.ini"])
+                subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"])
         
-        lines = ExportCameras(OUT_FOLDER / "images.txt")
+        lines = export_cameras.ExportCameras(OUT_FOLDER / "images.txt")
         print("EXPORTED CAMERAS POS")
 
         with open(OUT_FOLDER / "loc.txt", 'w') as file:

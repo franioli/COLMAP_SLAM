@@ -8,7 +8,7 @@ import numpy as np
 import os
 import time
 
-SLEEP = 0.5
+SLEEP = 1
 condition = True
 
 while condition == True:
@@ -32,7 +32,7 @@ while condition == True:
 
             ax = plt.axes(projection ='3d')
             mngr = plt.get_current_fig_manager()
-            mngr.window.setGeometry(50,500,640, 545)
+            mngr.window.setGeometry(50,450,640, 495)
             ax.scatter(X, Y, Z, 'green')
             ax.set_title('3D line plot geeks for geeks')
             ax.set_xticks(np.arange(min([min(X),min(Y),min(Z)]), max([max(X),max(Y),max(Z)]), 1))
@@ -42,6 +42,10 @@ while condition == True:
             plt.show(block=False)
             plt.pause(SLEEP)
             plt.clf()
+            
+            Total_imgs = len(os.listdir("./colmap_imgs"))
+            N_oriented_cameras = len(X)
+            print("Total: {}  Oriented: {}".format(Total_imgs, N_oriented_cameras))
 
     else:
         time.sleep(SLEEP)
