@@ -4,7 +4,7 @@ from pyquaternion import quaternion
 def ExportCameras(external_cameras_path):
     lines= []
     lines.append("IMAGE_ID X Y Z NX NY NZ FOCAL_LENGTH EULER_ROTATION_MATRIX\n")
-    d = {}
+    camera_dict = {}
     k = 0
     n_images = 0
     
@@ -50,7 +50,9 @@ def ExportCameras(external_cameras_path):
                                                 "0",
                                                 "1"
                                                 ))
+                    id_camera = int(name[:-4])
+                    camera_dict[id_camera] = (name)
         
             except:
                 print("Empty line")
-    return lines
+    return lines, camera_dict

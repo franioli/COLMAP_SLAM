@@ -6,7 +6,7 @@ import numpy as np
 
 from lib import database
 
-MAX_RATIO = 0.60
+MAX_RATIO = 1.00 #0.60
 MIN_RATIO = 0
 
 ####
@@ -179,7 +179,8 @@ def NextImg(last_img):
         next_img = "{}".format(last_img+1)
     return next_img
 
-def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, pointer, delta, newer_imgs, last_img):
+def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, newer_imgs, last_img, img_dict, img_batch, pointer): # pointer, delta,
+    delta = 0
     if STATIC_IMG_REJECTION_METHOD == 'root_sift':
 
         TEMP_DIR = CURRENT_DIR / "temp"
@@ -215,8 +216,10 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
                 ref_matches = matches_matrix
                 shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
                 shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img)+1)))
+                img_dict["{}".format(img1)] = "{}.jpg".format(NextImg(int(last_img)))
+                img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)+1))
                 pointer += 1
-                return pointer, delta, ref_matches, newer_imgs, NextImg(int(last_img)+1)
+                return ref_matches, newer_imgs, NextImg(int(last_img)+1), img_dict, img_batch, pointer # pointer, delta, 
             else:
                 vec_ref = ref_matches[:,1]
                 vec = matches_matrix[:,0]
@@ -232,22 +235,24 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
                 if control_ratio < MAX_RATIO and control_ratio > MIN_RATIO and os.path.exists(TEMP_DIR / "0"):
                     #shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}".format(img1))
                     shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
+                    img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)))
                     print("\n.. added img\n")
                     ref_matches = matches_matrix
                     pointer += 1 + delta
                     delta = 0
                     newer_imgs = True
-                    return pointer, delta, ref_matches, newer_imgs, NextImg(int(last_img))
+                    img_batch.append(img2)
+                    return ref_matches, newer_imgs, NextImg(int(last_img)), img_dict, img_batch, pointer # pointer, delta, 
 
                 else:
                     delta += 1
                     print("\n.. NO\n")
-                    return pointer, delta, ref_matches, newer_imgs, last_img
+                    return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
                 
         elif len(matches.keys()) == 0:
             delta += 1
             print("\n.. NO .. len(matches.keys()) == 0\n")
-            return pointer, delta, ref_matches, newer_imgs, last_img
+            return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
 
     elif STATIC_IMG_REJECTION_METHOD == 'radiometric':
         im1 = Image.open(IMGS_FROM_SERVER / img1)
@@ -268,19 +273,23 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
                 ref_matches = ["-"]
                 shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
                 shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img)+1)))
+                img_dict["{}".format(img1)] = "{}.jpg".format(NextImg(int(last_img)))
+                img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)+1))
                 pointer += 1
-                return pointer, delta, ref_matches, newer_imgs, NextImg(int(last_img)+1)
+                return ref_matches, newer_imgs, NextImg(int(last_img)+1), img_dict, img_batch # pointer, delta, 
             else:
                 shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
+                img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)))
                 print("\n.. added img\n")
                 pointer += 1 + delta
                 delta = 0
                 newer_imgs = True
-                return pointer, delta, ref_matches, newer_imgs, NextImg(int(last_img))
+                img_batch.append(img2)
+                return ref_matches, newer_imgs, NextImg(int(last_img)), img_dict, img_batch, pointer # pointer, delta, 
         else:
             delta += 1
             print("\n.. NO\n")
-            return pointer, delta, ref_matches, newer_imgs, last_img
+            return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
     
     else:
         print("Choose 'radiometric' or 'root_sift' as STATIC_IMG_REJECTION_METHOD")

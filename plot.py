@@ -11,11 +11,14 @@ import time
 SLEEP = 1
 condition = True
 
+
+
 while condition == True:
     if os.path.exists("./outs/loc.txt"):
         plt.ion()
         interactive(True)
         fig = plt.figure()
+        #fig, ax = plt.subplots(3, 1, subplot_kw={'projection' : '3d'}, constrained_layout=True, figsize=(8, 8))
 
         while condition == True:
             X = []
@@ -30,18 +33,41 @@ while condition == True:
                         Y.append(float(y))
                         Z.append(float(z))
 
+            
             ax = plt.axes(projection ='3d')
             mngr = plt.get_current_fig_manager()
             mngr.window.setGeometry(50,450,640, 495)
-            ax.scatter(X, Y, Z, 'green')
-            ax.set_title('3D line plot geeks for geeks')
-            ax.set_xticks(np.arange(min([min(X),min(Y),min(Z)]), max([max(X),max(Y),max(Z)]), 1))
-            ax.set_yticks(np.arange(min([min(X),min(Y),min(Z)]), max([max(X),max(Y),max(Z)]), 1))
-            ax.set_zticks(np.arange(min([min(X),min(Y),min(Z)]), max([max(X),max(Y),max(Z)]), 1))
-            #ax.view_init(azim=0, elev=90)
+
+            MIN = min([min(X),min(Y),min(Z)])
+            MAX = max([max(X),max(Y),max(Z)])
+
+            #ax[0].cla()
+            #ax[0].scatter(X, Y, Z, 'green')
+            #ax[0].set_title('a')
+            #ax[0].set_xticks([])
+            #ax[0].set_yticks([])
+            #ax[0].set_zticks([])
+            #ax[0].view_init(azim=0, elev=90)
+            #
+            #ax[1].cla()
+            #ax[1].scatter(X, Y, Z, 'blue')
+            #ax[1].set_title('b')
+            #ax[1].set_xticks([])
+            #ax[1].set_yticks([])
+            #ax[1].set_zticks([])
+            #ax[1].view_init(azim=90, elev=0)
+            
+            ax.cla()
+            ax.scatter(X, Y, Z, 'black')
+            ax.set_title('c')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_zticks([])           #ax[2].set_zticks(np.arange(MIN, MAX, (MAX-MIN)/10))
+            ax.view_init(azim=0, elev=90)
+
             plt.show(block=False)
             plt.pause(SLEEP)
-            plt.clf()
+            #plt.clf()
             
 
 
