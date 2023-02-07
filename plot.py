@@ -8,7 +8,7 @@ import numpy as np
 import os
 import time
 
-SLEEP = 1
+SLEEP = 0.5
 condition = True
 
 

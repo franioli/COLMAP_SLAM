@@ -255,41 +255,46 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
             return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
 
     elif STATIC_IMG_REJECTION_METHOD == 'radiometric':
-        im1 = Image.open(IMGS_FROM_SERVER / img1)
-        im2 = Image.open(IMGS_FROM_SERVER / img2)
-        im1.resize((round(im1.size[0]*1), round(im1.size[1]*1)))
-        im2.resize((round(im2.size[0]*1), round(im2.size[1]*1)))
-        im1_gray = ImageOps.grayscale(im1)
-        im2_gray = ImageOps.grayscale(im2)
-        
-        mean1 = np.mean(np.array(im1_gray))
-        mean2 = np.mean(np.array(im2_gray))
+        try:
+            im1 = Image.open(IMGS_FROM_SERVER / img1)
+            im2 = Image.open(IMGS_FROM_SERVER / img2)
+            im1.resize((round(im1.size[0]*1), round(im1.size[1]*1)))
+            im2.resize((round(im2.size[0]*1), round(im2.size[1]*1)))
+            im1_gray = ImageOps.grayscale(im1)
+            im2_gray = ImageOps.grayscale(im2)
 
-        innovation = np.absolute(mean2 - mean1)
-        print("INNOVATION", innovation)
+            mean1 = np.mean(np.array(im1_gray))
+            mean2 = np.mean(np.array(im2_gray))
 
-        if innovation > 1:
-            if ref_matches == []:
-                ref_matches = ["-"]
-                shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
-                shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img)+1)))
-                img_dict["{}".format(img1)] = "{}.jpg".format(NextImg(int(last_img)))
-                img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)+1))
-                pointer += 1
-                return ref_matches, newer_imgs, NextImg(int(last_img)+1), img_dict, img_batch # pointer, delta, 
+            innovation = np.absolute(mean2 - mean1)
+            #print("INNOVATION", innovation)
+
+            if innovation > 1:
+                if ref_matches == []:
+                    ref_matches = ["-"]
+                    shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
+                    shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img)+1)))
+                    img_dict["{}".format(img1)] = "{}.jpg".format(NextImg(int(last_img)))
+                    img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)+1))
+                    pointer += 1
+                    return ref_matches, newer_imgs, NextImg(int(last_img)+1), img_dict, img_batch, pointer # pointer, delta, 
+                else:
+                    shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
+                    img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)))
+                    #print("\n.. added img\n")
+                    pointer += 1 + delta
+                    delta = 0
+                    newer_imgs = True
+                    img_batch.append(img2)
+                    return ref_matches, newer_imgs, NextImg(int(last_img)), img_dict, img_batch, pointer # pointer, delta, 
             else:
-                shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
-                img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)))
-                print("\n.. added img\n")
-                pointer += 1 + delta
-                delta = 0
-                newer_imgs = True
-                img_batch.append(img2)
-                return ref_matches, newer_imgs, NextImg(int(last_img)), img_dict, img_batch, pointer # pointer, delta, 
-        else:
+                delta += 1
+                print("\n!! Frame rejeccted !!\n")
+                return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
+        except:
             delta += 1
-            print("\n.. NO\n")
-            return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
+            print("\n!! Frame truncated !!\n")
+            return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer
     
     else:
         print("Choose 'radiometric' or 'root_sift' as STATIC_IMG_REJECTION_METHOD")

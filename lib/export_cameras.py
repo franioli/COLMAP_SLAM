@@ -15,7 +15,7 @@ def ExportCameras(external_cameras_path):
             try:
                 first_elem, waste = line.split(' ', 1)
                 if first_elem == "#":
-                    print(first_elem)
+                    pass #print(first_elem)
                 elif k%2 != 0:
                     image_id, qw, qx, qy, qz, tx, ty, tz, camera_id, name = line.split(" ", 9)
                     q = np.array([float(qw), float(qx), float(qy), float(qz)])
@@ -54,5 +54,5 @@ def ExportCameras(external_cameras_path):
                     camera_dict[id_camera] = (name)
         
             except:
-                print("Empty line")
+                pass #print("Empty line")
     return lines, camera_dict
