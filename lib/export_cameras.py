@@ -1,7 +1,8 @@
 import numpy as np
 from pyquaternion import quaternion
 
-def ExportCameras(external_cameras_path):
+def ExportCameras(external_cameras_path, img_dict):
+    inverted_img_dict = {v: k for k, v in img_dict.items()}
     lines= []
     lines.append("IMAGE_ID X Y Z NX NY NZ FOCAL_LENGTH EULER_ROTATION_MATRIX\n")
     camera_dict = {}
@@ -25,8 +26,9 @@ def ExportCameras(external_cameras_path):
                     camera_location = np.dot(-q_matrix.transpose(),t)
                     n_images = n_images + 1
                     camera_direction = np.dot(q_matrix.transpose(),np.array([[0],[0],[1]]))#*-1
-                    lines.append('{} {} {} {} {} {} {} 50 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}\n'.format(
+                    lines.append('{} {} {} {} {} {} {} {} 50 {} {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}\n'.format(
                                                 name,
+                                                inverted_img_dict[name],
                                                 camera_location[0,0],
                                                 camera_location[1,0],
                                                 camera_location[2,0],
@@ -51,7 +53,7 @@ def ExportCameras(external_cameras_path):
                                                 "1"
                                                 ))
                     id_camera = int(name[:-4])
-                    camera_dict[id_camera] = (name)
+                    camera_dict[id_camera] = (name, (camera_location[0, 0], camera_location[1, 0], camera_location[2, 0]), (q, t))
         
             except:
                 pass #print("Empty line")

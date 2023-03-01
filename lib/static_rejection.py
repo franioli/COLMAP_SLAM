@@ -8,6 +8,7 @@ from lib import database
 
 MAX_RATIO = 1.00 #0.60
 MIN_RATIO = 0
+INNOVATION_THRESH = 0.001#1.5 # Solitamente funzionava con 1
 
 ####
 #### RootSift
@@ -263,13 +264,23 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
             im1_gray = ImageOps.grayscale(im1)
             im2_gray = ImageOps.grayscale(im2)
 
-            mean1 = np.mean(np.array(im1_gray))
-            mean2 = np.mean(np.array(im2_gray))
+            # Normalization
+            im1_array = np.array(im1_gray)
+            im1_array = (im1_array - np.min(im1_array))/np.max(im1_array)
+            im2_array = np.array(im2_gray)
+            im2_array = (im2_array - np.min(im2_array))/np.max(im2_array)
+
+            mean1 = np.mean(im1_array)
+            mean2 = np.mean(im2_array)
+
+            #innovation = np.sum(((im1_array - np.mean(im1_array)) * (im2_array - np.mean(im2_array))) / (np.std(im1_array) * np.std(im2_array)))
+            #ref = np.sum(((im1_array - np.mean(im1_array)) * (im1_array - np.mean(im1_array))) / (np.std(im1_array) * np.std(im1_array)))
+            #innovation = innovation/ref
 
             innovation = np.absolute(mean2 - mean1)
-            #print("INNOVATION", innovation)
+            print("INNOVATION", innovation)
 
-            if innovation > 1:
+            if innovation > INNOVATION_THRESH:
                 if ref_matches == []:
                     ref_matches = ["-"]
                     shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))

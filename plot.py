@@ -28,15 +28,15 @@ while condition == True:
                 with open("./outs/loc.txt", 'r') as file:
                     lines = file.readlines()
                     for line in lines[1:]:
-                        id, x, y, z, _ = line.split(" ", 4)
+                        id, name, x, y, z, _ = line.split(" ", 5)
                         X.append(float(x))
                         Y.append(float(y))
                         Z.append(float(z))
 
             
             ax = plt.axes(projection ='3d')
-            mngr = plt.get_current_fig_manager()
-            mngr.window.setGeometry(50,450,640, 495)
+            #mngr = plt.get_current_fig_manager()
+            #mngr.window.setGeometry(50,450,640, 495)
 
             MIN = min([min(X),min(Y),min(Z)])
             MAX = max([max(X),max(Y),max(Z)])

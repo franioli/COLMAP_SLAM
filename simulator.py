@@ -1,9 +1,10 @@
 import os
 import shutil
 import time
+from PIL import Image
 
-INPUT_DIR = r"/home/luca/Scrivania/3DOM/Github_lcmrl/COLMAP_SLAM/RILIEVI/FBK2/colmap_imgs" #
-OUTPUT_DIR = r"/home/luca/Scrivania/3DOM/Github_lcmrl/Server_Connection/c++_send_images/imgs"
+INPUT_DIR = r"/home/luca/Desktop/ION2023/EuRoC_MAV/MH_01_easy/mav0/cam0/data"
+OUTPUT_DIR = r"./imgs"
 
 
 def Id2name(id):
@@ -29,7 +30,23 @@ imgs.sort()
 #    shutil.copy("{}/output{}.jpg".format(INPUT_DIR, i), "{}/output{}.jpg".format(OUTPUT_DIR, i))
 #    time.sleep(0.5)
 
-for i in range(1, len(os.listdir(INPUT_DIR))):
-    img = Id2name(i)
-    shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i-1))
-    time.sleep(0.5)
+##for i in range(140, len(os.listdir(INPUT_DIR))):
+#for i in range(140, 300):
+#    img = Id2name(i)
+#    shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i-1))
+#    time.sleep(0.25)
+
+#for i in range(0, 600):
+#    shutil.copy("{}/img{}.jpg".format(INPUT_DIR, i), "{}/output{}.jpg".format(OUTPUT_DIR, i))
+#    time.sleep(0.25)
+
+for i in range(0, 10000000): #cam0 parte da 0, cam1 parte da 30
+    img = imgs[i]
+    #shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i))
+    im = Image.open("{}/{}".format(INPUT_DIR, img))
+    rgb_im = im.convert('RGB')
+    rgb_im.save("{}/{}.jpg".format(OUTPUT_DIR, img[:-4]))
+    time.sleep(0.05) #0.05
+
+
+
