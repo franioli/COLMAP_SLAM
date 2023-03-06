@@ -6,8 +6,8 @@ import numpy as np
 
 from lib import database
 
-MAX_RATIO = 1.00 #0.60
-MIN_RATIO = 0
+MAX_RATIO = 0.40 #0.60
+MIN_RATIO = 0.05
 INNOVATION_THRESH = 0.001#1.5 # Solitamente funzionava con 1
 
 ####
@@ -180,22 +180,22 @@ def NextImg(last_img):
         next_img = "{}".format(last_img+1)
     return next_img
 
-def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, newer_imgs, last_img, img_dict, img_batch, pointer): # pointer, delta,
+def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, newer_imgs, last_img, img_dict, img_batch, pointer, colmap_exe): # pointer, delta,
     delta = 0
     if STATIC_IMG_REJECTION_METHOD == 'root_sift':
 
         TEMP_DIR = CURRENT_DIR / "temp"
 
-        shutil.rmtree(TEMP_DIR / "pair")     
+        shutil.rmtree(TEMP_DIR / "pair")
         os.makedirs(TEMP_DIR / "pair")
         shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), TEMP_DIR / "pair" / "{}".format(img1))
         shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), TEMP_DIR / "pair" / "{}".format(img2))
 
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", TEMP_DIR / "db.db"], stdout=subprocess.DEVNULL)
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", MAX_N_FEATURES], stdout=subprocess.DEVNULL)
+        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "database_creator", "--database_path", TEMP_DIR / "db.db"])
+        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", str(MAX_N_FEATURES)])
         #subprocess.run(["python3", CURRENT_DIR / "lib" / "RootSIFT.py", "--Path", TEMP_DIR / "db.db", "--Output", TEMP_DIR], stdout=subprocess.DEVNULL)
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", TEMP_DIR / "db.db", "--SequentialMatching.overlap", "1"], stdout=subprocess.DEVNULL)
-        subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_for_static_rejection.ini"], stdout=subprocess.DEVNULL)
+        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "sequential_matcher", "--database_path", TEMP_DIR / "db.db", "--SequentialMatching.overlap", "1"])
+        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_for_static_rejection.ini"])
 
         #kp1, desc1, kp_numb1 = RootSift(img1, TEMP_DIR, 8000)
         #kp2, desc2, kp_numb2 = RootSift(img2, TEMP_DIR, 8000)
@@ -255,6 +255,7 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
             print("\n.. NO .. len(matches.keys()) == 0\n")
             return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
 
+    ### RADIOMETRIC APPROACH
     elif STATIC_IMG_REJECTION_METHOD == 'radiometric':
         try:
             im1 = Image.open(IMGS_FROM_SERVER / img1)
@@ -278,7 +279,7 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
             #innovation = innovation/ref
 
             innovation = np.absolute(mean2 - mean1)
-            print("INNOVATION", innovation)
+            #print("INNOVATION: ", innovation)
 
             if innovation > INNOVATION_THRESH:
                 if ref_matches == []:
@@ -292,7 +293,6 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
                 else:
                     shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
                     img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)))
-                    #print("\n.. added img\n")
                     pointer += 1 + delta
                     delta = 0
                     newer_imgs = True
@@ -300,11 +300,11 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
                     return ref_matches, newer_imgs, NextImg(int(last_img)), img_dict, img_batch, pointer # pointer, delta, 
             else:
                 delta += 1
-                print("\n!! Frame rejeccted !!\n")
+                print("!! Frame rejeccted !!", end='\r')
                 return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
         except:
             delta += 1
-            print("\n!! Frame truncated !!\n")
+            print("!! Frame truncated !!")
             return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer
     
     else:

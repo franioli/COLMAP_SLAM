@@ -1,30 +1,3 @@
-# pip3 install --upgrade pip
-# pip3 install opencv-contrib-python-headless (for docker, no GUI)
-# pip3 install pyquaternion
-# pip3 install scipy
-# pip3 install matplotlib
-# apt-get install -y python3-tk # to plot charts in docker
-# pip3 install piexif
-# pip3 install pyproj
-# pip3 install pymap3d
-
-# run in docker "colmap_opencv"
-# python3 colmap_loop_linux.py
-
-# DA FARE:
-# PER VELOCIZZARE TENERE CONTO CHE NON E' NECESSARIO PROCESSARE TUTTI I FRAMES MA SOLO I KEYFRAMES!!!
-# Server-Client c'è un problema con l'ordine dei file trovati nella cartella, vanno ordinati secondo un criterio
-# migliorare plot 3d
-# VELOCIZZARE TUTTO PER PROCESSARE PIU' FRAMES AL SECONDO
-# API COLMAP sequential_matcher è stranamente lenta rispetto alla GUI
-# ADESSO IL SEQUENTIAL OVERLAP DINAMICO NON FUNZIONA PIU', VA PASSATO A matcher.ini
-# https://medium.com/pythonland/6-things-you-need-to-know-to-run-commands-from-python-4ed5bc4c58a1
-
-# Calibration
-# RaspCam 616.85,336.501,229.257,0.00335319
-
-# subprocess TUTORIAL https://www.bogotobogo.com/python/python_subprocess_module.php
-
 import configparser
 import subprocess
 import time
@@ -52,7 +25,7 @@ from lib import ExtractCustomFeatures
 
 T = 0.1
 state_init = False
-N_imgs_to_process = 30 #30
+N_imgs_to_process = 30
 
 
 ### FUNCTIONS
@@ -71,7 +44,7 @@ def Id2name(id):
         img_name = "{}.jpg".format(id)
     return img_name
 
-def Helmert(slam_coord, gnss_coord):
+def Helmert(slam_coord, gnss_coord, OS):
     with open('./gt.txt', 'w') as gt_file, open('./sl.txt', 'w') as sl_file:
         count = 0
         for gt, sl in zip(gnss_coord, slam_coord):
@@ -79,7 +52,10 @@ def Helmert(slam_coord, gnss_coord):
             sl_file.write("{},{},{},{}\n".format(count, sl[0], sl[1], sl[2]))
             count += 1
     output_file = open('./helemert.txt', 'w')
-    subprocess.run(["./AlignCC_for_linux/align", "./sl.txt", "./gt.txt"], stdout=output_file)
+    if OS == 'linux':
+        subprocess.run(["./AlignCC_for_linux/align", "./sl.txt", "./gt.txt"], stdout=output_file)
+    elif OS == 'windows':
+        subprocess.run(["./AlignCC_for_windows/Align.exe", "./sl.txt", "./gt.txt"], stdout=output_file)
     output_file.close()
     
     elms = []
@@ -108,6 +84,15 @@ DATABASE = CURRENT_DIR / "outs" / "db.db"
 # Import conf files
 config = configparser.ConfigParser()
 config.read(CURRENT_DIR / 'config.ini')
+OS = config['DEFAULT']['OS']
+print(OS)
+if OS == "windows":
+    colmap_exe = "COLMAP.bat"
+elif OS == "linux":
+    colmap_exe = "colmap"
+else:
+    print("OS in conf.ini must be windows or linux"); quit()
+
 USE_SERVER = config['DEFAULT'].getboolean('USE_SERVER')
 LAUNCH_SERVER_PATH = Path(config['DEFAULT']['LAUNCH_SERVER_PATH'])
 DEBUG = config['DEFAULT'].getboolean('DEBUG')
@@ -181,7 +166,7 @@ if USE_SERVER == True:
     p = subprocess.Popen(["python3", "/home/luca/Scrivania/3DOM/Github_lcmrl/COLMAP_SLAM/plot.py"])
 
 for i in range (LOOP_CYCLES):
-    start_loop = time.time()
+    
     imgs = os.listdir(IMGS_FROM_SERVER)
     imgs = sorted(imgs, key=lambda x: int(x[6:-4]))
     newer_imgs = False
@@ -199,9 +184,9 @@ for i in range (LOOP_CYCLES):
                 img1 = imgs[pointer]
                 img2 = imgs[c]
                 start = time.time()
-                ref_matches, newer_imgs, total_imgs, img_dict, img_batch, pointer = static_rejection.StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, newer_imgs, total_imgs, img_dict, img_batch, pointer) # pointer, delta, 
+                ref_matches, newer_imgs, total_imgs, img_dict, img_batch, pointer = static_rejection.StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, newer_imgs, total_imgs, img_dict, img_batch, pointer, colmap_exe) # pointer, delta, 
                 end = time.time()
-                print("STATIC CHECK {}s".format(end-start))
+                print("STATIC CHECK {}s".format(end-start), end='\r')
                 processed_imgs.append(img)
                 processed += 1
                 
@@ -255,42 +240,109 @@ for i in range (LOOP_CYCLES):
     kfrms = os.listdir(KEYFRAMES_DIR)
     kfrms.sort()
     
-    if len(kfrms) >= 30 and newer_imgs == True: # 3 is mandatory or the pointer will not updated untill min of len(kfrms) is reached        
-        if ended_first_colmap_loop == True:
+    if len(kfrms) >= 30 and newer_imgs == True: # 3 is mandatory or the pointer will not updated untill min of len(kfrms) is reached  
+        start_loop = time.time()      
+        print(f"[LOOP : {i}]")
+
+        # FIRST LOOP IN COLMAP - INITIALIZATION
+        if ended_first_colmap_loop == False:
+
+            if CUSTOM_FEATURES == False:
+                # Initialize an empty database
+                st_time = time.time()
+                if not os.path.exists(DATABASE): subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "database_creator", "--database_path", DATABASE], stdout=subprocess.DEVNULL)
+                end_time = time.time()
+                print("DATABASE INITIALIZATION: ", end_time-st_time) 
+
+                # Feature extraction
+                st_time = time.time()
+                p = subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"], stdout=subprocess.DEVNULL)
+                end_time = time.time()
+                print("FEATURE EXTRACTION: ", end_time-st_time)  
+
+            elif CUSTOM_FEATURES == True:
+                # Initialize an empty database
+                st_time = time.time()
+                if not os.path.exists(DATABASE): subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "database_creator", "--database_path", DATABASE], stdout=subprocess.DEVNULL)
+                end_time = time.time()
+                print("DATABASE INITIALIZATION: ", end_time-st_time) 
+
+                # Feature extraction               
+                st_time = time.time()
+                ExtractCustomFeatures.ExtractCustomFeatures(CUSTOM_DETECTOR, PATH_TO_LOCAL_FEATURES, DATABASE, kfrms, img_dict, KEYFRAMES_DIR)
+                end_time = time.time()
+                print("FEATURE EXTRACTION: ", end_time-st_time)  
+           
+            # Sequential matcher
+            st_time = time.time()
+            subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "sequential_matcher", "--project_path", CURRENT_DIR / "lib" / "matcher.ini"], stdout=subprocess.DEVNULL)
+            end_time = time.time()
+            print("SEQUENTIAL MATCHER: ", end_time-st_time)
+
+            # Triangulation and BA
+            st_time = time.time()
+            subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_first_loop.ini"], stdout=subprocess.DEVNULL)
+            end_time = time.time()
+            print("MAPPER: ", end_time-st_time)
+
+            # Convert model from binary to txt
+            st_time = time.time()
+            subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
+            end_time = time.time()
+            print("MODEL CONVERSION: ", end_time-st_time)
+            
+            ended_first_colmap_loop = True
+
+
+        # ALL COLMAP LOOPS AFTER THE FIRST - Model growth
+        elif ended_first_colmap_loop == True:
             # subprocess examples:
+            # https://stackabuse.com/executing-shell-commands-with-python/
             # subprocess.call([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
             # subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"], stdout=subprocess.DEVNULL)
             # p = subprocess.Popen([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "{}".format(SEQUENTIAL_OVERLAP), "--SequentialMatching.quadratic_overlap", "1"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
             # p.communicate()
+            # p.wait()
 
             if CUSTOM_FEATURES == False:
-                p = subprocess.call([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift.ini"], stdout=subprocess.DEVNULL)
-                #p.communicate()
+                # Feature extraction               
+                st_time = time.time()
+                subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift.ini"], stdout=subprocess.DEVNULL)
+                end_time = time.time()
+                print("FEATURE EXTRACTION: ", end_time-st_time) 
+
             elif CUSTOM_FEATURES == True:
+                # Feature extraction               
+                st_time = time.time()                
                 ExtractCustomFeatures.ExtractCustomFeatures(CUSTOM_DETECTOR, PATH_TO_LOCAL_FEATURES, DATABASE, kfrms, img_dict, KEYFRAMES_DIR)
+                end_time = time.time()
+                print("FEATURE EXTRACTION: ", end_time-st_time) 
+
+            # Sequential matcher
+            st_time = time.time()            
             #p = subprocess.Popen([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--project_path", CURRENT_DIR / "lib" / "matcher.ini"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-            p = subprocess.call([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "{}".format(SEQUENTIAL_OVERLAP), "--SequentialMatching.quadratic_overlap", "1"], stdout=subprocess.DEVNULL)
-            #p.communicate()
-            st_time = time.time()
-            subprocess.call([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
-            #p.communicate()
+            p = subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "{}".format(SEQUENTIAL_OVERLAP), "--SequentialMatching.quadratic_overlap", "1"], stdout=subprocess.DEVNULL)
             end_time = time.time()
-            p = subprocess.call([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER, "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
-            #p.communicate()
+            print("SEQUENTIAL MATCHER: ", end_time-st_time)
             
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", end_time-st_time)
+            # Triangulation and BA
+            st_time = time.time()
+            subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
+            end_time = time.time()
+            print("MAPPER: ", end_time-st_time)
+           
+            # Convert model from binary to txt
+            st_time = time.time()           
+            p = subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "model_converter", "--input_path", OUT_FOLDER, "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
+            end_time = time.time()
+            print("MODEL CONVERSION: ", end_time-st_time)
+            
+            
 
-        elif ended_first_colmap_loop == False:
-            if CUSTOM_FEATURES == False:
-                if not os.path.exists(DATABASE): subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE], stdout=subprocess.DEVNULL)
-                subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"], stdout=subprocess.DEVNULL)
-            elif CUSTOM_FEATURES == True:
-                if not os.path.exists(DATABASE): subprocess.run([COLMAP_EXE_PATH / "colmap", "database_creator", "--database_path", DATABASE], stdout=subprocess.DEVNULL)
-                ExtractCustomFeatures.ExtractCustomFeatures(CUSTOM_DETECTOR, PATH_TO_LOCAL_FEATURES, DATABASE, kfrms, img_dict, KEYFRAMES_DIR)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--project_path", CURRENT_DIR / "lib" / "matcher.ini"], stdout=subprocess.DEVNULL)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_first_loop.ini"], stdout=subprocess.DEVNULL)
-            subprocess.run([COLMAP_EXE_PATH / "colmap", "model_converter", "--input_path", OUT_FOLDER / "0", "--output_path", OUT_FOLDER, "--output_type", "TXT"], stdout=subprocess.DEVNULL)
-            ended_first_colmap_loop = True
+            
+            
+
+            
 
         lines, oriented_dict = export_cameras.ExportCameras(OUT_FOLDER / "images.txt", img_dict)
         with open(OUT_FOLDER / "loc.txt", 'w') as file:
@@ -322,7 +374,7 @@ for i in range (LOOP_CYCLES):
         else:
             SEQUENTIAL_OVERLAP = INITIAL_SEQUENTIAL_OVERLAP
 
-        end_loop = time.time()
+        
 
 
         oriented_dict_list = list(oriented_dict.keys())
@@ -342,7 +394,7 @@ for i in range (LOOP_CYCLES):
                     f1.write("{},{},{},{}\n".format(img_id, oriented_dict[img_id][1][0], oriented_dict[img_id][1][1], oriented_dict[img_id][1][2]))
                     list2.append(reference_imgs_dict[img_name])
                     f2.write("{},{},{},{}\n".format(img_id, reference_imgs_dict[img_name][0], reference_imgs_dict[img_name][1], reference_imgs_dict[img_name][2]))
-            R_, t_, scale_factor_ = Helmert(list1, list2)
+            R_, t_, scale_factor_ = Helmert(list1, list2, OS)
             #R_, t_ = Helmert(list2, list1)
             print(R_, t_)
             #print("reference_imgs_dict", reference_imgs_dict)
@@ -523,7 +575,7 @@ for i in range (LOOP_CYCLES):
                         slam_coord.append((position_dict[img]['slamX'], position_dict[img]['slamY'], position_dict[img]['slamZ']))
                 #print(slam_coord, gnss_coord)
                 
-                R, t, scale_factor = Helmert(slam_coord, gnss_coord)
+                R, t, scale_factor = Helmert(slam_coord, gnss_coord, OS)
                 #print(R, t)
     
                 #Store positions
@@ -627,8 +679,8 @@ for i in range (LOOP_CYCLES):
 
         img_batch = []
         oriented_imgs_batch = []
-
-        print("LOOP TIME {}s\n\n\n".format(end_loop-start_loop))
+        end_loop = time.time()
+        print("LOOP TIME {}s\n".format(end_loop-start_loop))
         
 
     time.sleep(SLEEP_TIME)
