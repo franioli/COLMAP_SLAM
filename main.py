@@ -1,3 +1,16 @@
+# POSSIBLE CRITICAL POINTS:
+# Check how input images are sorted >imgs = sorted(imgs, key=lambda x: int(x[6:-4]))
+# Initialization of the photogrammetric model. If necessary the initial pair can be fixed in the lib/mapper_first_loop.ini file
+# Exif gnss data works properly only when directions are N and E
+
+# NOTES:
+# Maybe newer_imgs can be eliminated
+# matcher.ini us used only in the first loop. In the others, options are directly passed to the sequential_matcher API, see the code
+
+# FEATURES TO BE ADDED:
+# restart when the reconstruction breaks
+# treat images with a class, so it will be easer to keep track og id, original, names, orientation, etc
+
 import configparser
 import subprocess
 import time
@@ -23,9 +36,9 @@ from lib import covariance_mat
 from lib import ExtractCustomFeatures
 
 
+### OPTIONS FOR EKF - Development temporarily interrupted, do not change values
 T = 0.1
 state_init = False
-N_imgs_to_process = 30
 
 
 ### FUNCTIONS
@@ -44,20 +57,24 @@ def Id2name(id):
         img_name = "{}.jpg".format(id)
     return img_name
 
-def Helmert(slam_coord, gnss_coord, OS):
+
+def Helmert(aligned_coord, reference_coord, OS, DEBUG):
+    '''
+    Helmert transformation using precompiled c++ library from CloudCompare
+    '''
     with open('./gt.txt', 'w') as gt_file, open('./sl.txt', 'w') as sl_file:
         count = 0
-        for gt, sl in zip(gnss_coord, slam_coord):
+        for gt, sl in zip(reference_coord, aligned_coord):
             gt_file.write("{},{},{},{}\n".format(count, gt[0], gt[1], gt[2]))
             sl_file.write("{},{},{},{}\n".format(count, sl[0], sl[1], sl[2]))
             count += 1
-    output_file = open('./helemert.txt', 'w')
-    if OS == 'linux':
-        subprocess.run(["./AlignCC_for_linux/align", "./sl.txt", "./gt.txt"], stdout=output_file)
-    elif OS == 'windows':
-        subprocess.run(["./AlignCC_for_windows/Align.exe", "./sl.txt", "./gt.txt"], stdout=output_file)
-    output_file.close()
     
+    with open('./helemert.txt', 'w') as output_file:
+        if OS == 'linux':
+            subprocess.run(["./AlignCC_for_linux/align", "./sl.txt", "./gt.txt"], stdout=output_file)
+        elif OS == 'windows':
+            subprocess.run(["./AlignCC_for_windows/Align.exe", "./sl.txt", "./gt.txt"], stdout=output_file)
+
     elms = []
     with open('./helemert.txt', 'r') as helmert_file:
         lines = helmert_file.readlines()
@@ -66,26 +83,27 @@ def Helmert(slam_coord, gnss_coord, OS):
             e1, e2, e3, e4 = line.strip().split(" ", 3)
             elms.extend((e1, e2, e3, e4))
     transf_matrix = np.array(elms, dtype = 'float32').reshape((4, 4))
-    print()
-    print()
-    print("transf_matrix", transf_matrix)
+
     R = transf_matrix[:3, :3]
     t = transf_matrix[:3, 3].reshape((3, 1))
-    print(R, t)
+    os.remove('./gt.txt'); os.remove('./sl.txt'); os.remove('./helemert.txt')
+
     return R, t, float(scale_factor)
 
+
 ### MAIN STARTS HERE
+# Working directories
 CURRENT_DIR = Path(os.getcwd())
 TEMP_DIR = CURRENT_DIR / "temp"
 KEYFRAMES_DIR = CURRENT_DIR / "colmap_imgs"
 OUT_FOLDER = CURRENT_DIR / "outs"
 DATABASE = CURRENT_DIR / "outs" / "db.db"
 
-# Import conf files
+# Import conf options
 config = configparser.ConfigParser()
-config.read(CURRENT_DIR / 'config.ini')
+config.read(CURRENT_DIR / 'config.ini', encoding="utf-8")
+
 OS = config['DEFAULT']['OS']
-print(OS)
 if OS == "windows":
     colmap_exe = "COLMAP.bat"
 elif OS == "linux":
@@ -93,9 +111,11 @@ elif OS == "linux":
 else:
     print("OS in conf.ini must be windows or linux"); quit()
 
+# DEFAULT
 USE_SERVER = config['DEFAULT'].getboolean('USE_SERVER')
 LAUNCH_SERVER_PATH = Path(config['DEFAULT']['LAUNCH_SERVER_PATH'])
 DEBUG = config['DEFAULT'].getboolean('DEBUG')
+MAX_IMG_BATCH_SIZE = int(config['DEFAULT']["MAX_IMG_BATCH_SIZE"])
 STATIC_IMG_REJECTION_METHOD = config['DEFAULT']["STATIC_IMG_REJECTION_METHOD"] # 'radiometric' or 'root_sift'
 SLEEP_TIME = float(config['DEFAULT']["SLEEP_TIME"])
 LOOP_CYCLES = int(config['DEFAULT']["LOOP_CYCLES"])
@@ -103,11 +123,21 @@ COLMAP_EXE_PATH = Path(config['DEFAULT']["COLMAP_EXE_PATH"])
 IMGS_FROM_SERVER = Path(config['DEFAULT']["IMGS_FROM_SERVER"]) #Path(r"/home/luca/Scrivania/3DOM/Github_lcmrl/Server_Connection/c++_send_images/imgs")
 MAX_N_FEATURES = int(config['DEFAULT']["MAX_N_FEATURES"])
 INITIAL_SEQUENTIAL_OVERLAP = int(config['DEFAULT']["INITIAL_SEQUENTIAL_OVERLAP"])
-SEQUENTIAL_OVERLAP = int(config['DEFAULT']["SEQUENTIAL_OVERLAP"])
+SEQUENTIAL_OVERLAP = INITIAL_SEQUENTIAL_OVERLAP
 ONLY_SLAM = config['DEFAULT'].getboolean('ONLY_SLAM')
 CUSTOM_FEATURES = config['DEFAULT'].getboolean('CUSTOM_FEATURES')
 PATH_TO_LOCAL_FEATURES = Path(config['DEFAULT']["PATH_TO_LOCAL_FEATURES"])
 CUSTOM_DETECTOR = config['DEFAULT']["CUSTOM_DETECTOR"]
+
+# EXTERNAL_SENSORS
+USE_EXTERNAL_CAM_COORD = config['EXTERNAL_SENSORS'].getboolean('USE_EXTERNAL_CAM_COORD')
+CAMERA_COORDINATES_FILE = Path(config['EXTERNAL_SENSORS']["CAMERA_COORDINATES_FILE"])
+
+# INCREMENTAL_RECONSTRUCTION
+MIN_KEYFRAME_FOR_INITIALIZATION = int(config['INCREMENTAL_RECONSTRUCTION']["MIN_KEYFRAME_FOR_INITIALIZATION"])
+LOOP_CLOSURE_DETECTION = config['INCREMENTAL_RECONSTRUCTION'].getboolean("LOOP_CLOSURE_DETECTION")
+VOCAB_TREE = config['INCREMENTAL_RECONSTRUCTION']["VOCAB_TREE"]
+
 
 # Initialize variables
 position_dict = {}
@@ -121,7 +151,6 @@ pointer = 0
 delta = 0
 ended_first_colmap_loop = False
 total_imgs = "000000"
-#processed = 0
 Xslam = []
 Yslam = []
 Zslam = []
@@ -146,41 +175,49 @@ else:
     os.makedirs(KEYFRAMES_DIR)
     os.makedirs(OUT_FOLDER)
 
-# If ground truth available
-gt_dict = {}
-#with open("/home/luca/Scrivania/3DOM/Github_lcmrl/COLMAP_SLAM/GroundTruth/sparse/ssssssssssssss.txt") as gt_file:
-#    lines = gt_file.readlines()
-#    for line in lines[2:]:
-#        id, x, y, z, _ = line.split(" ", 4)
-#        gt_dict[id] = (x, y, z)
+if not os.path.exists(IMGS_FROM_SERVER):
+    os.makedirs(IMGS_FROM_SERVER)
+else:
+    shutil.rmtree(IMGS_FROM_SERVER)
+    os.makedirs(IMGS_FROM_SERVER)   
+
+
+# If the camera coordinates are known from other sensors than gnss,
+# they can be stores in camera_coord_other_sensors dictionary and used
+# to scale the photogrammetric model
+camera_coord_other_sensors = {}
+if USE_EXTERNAL_CAM_COORD == True:
+    with open(CAMERA_COORDINATES_FILE, 'r') as gt_file:
+        lines = gt_file.readlines()
+        for line in lines[2:]:
+            id, x, y, z, _ = line.split(" ", 4)
+            camera_coord_other_sensors[id] = (x, y, z)
 
 
 ### MAIN LOOP
+# Stream of input data
+p = subprocess.Popen(["python3", "./plot.py"])
 if USE_SERVER == True:
-    if not os.path.exists(IMGS_FROM_SERVER):
-        os.makedirs(IMGS_FROM_SERVER)
-    else:
-        shutil.rmtree(IMGS_FROM_SERVER)
-        os.makedirs(IMGS_FROM_SERVER)   
     p = subprocess.Popen([LAUNCH_SERVER_PATH])
-    p = subprocess.Popen(["python3", "/home/luca/Scrivania/3DOM/Github_lcmrl/COLMAP_SLAM/plot.py"])
+else:
+    p = subprocess.Popen(["python3", "./simulator.py"])
 
 for i in range (LOOP_CYCLES):
-    
     imgs = os.listdir(IMGS_FROM_SERVER)
-    imgs = sorted(imgs, key=lambda x: int(x[6:-4]))
+    imgs = sorted(imgs, key=lambda x: int(x[:-4]))
     newer_imgs = False
     processed = 0
     
     # Choose if keeping the pair
     if len(imgs) < 2:
-        print("[{}] len(imgs) < 2".format(i))
+        print("[{}] Not enough images. len(imgs) < 2".format(i))
 
     elif len(imgs) >= 2:
         for c, img in enumerate(imgs):
             # Decide if new images are valid to be added to the sequential matching
-            if img not in processed_imgs and c >= 1 and c != pointer and c > pointer+delta and processed < N_imgs_to_process:
-                
+            # Only new images found in the target folder are processed.
+            # No more than MAX_IMG_BATCH_SIZE imgs are processed.
+            if img not in processed_imgs and c >= 1 and c != pointer and c > pointer+delta and processed < MAX_IMG_BATCH_SIZE:
                 img1 = imgs[pointer]
                 img2 = imgs[c]
                 start = time.time()
@@ -190,11 +227,15 @@ for i in range (LOOP_CYCLES):
                 processed_imgs.append(img)
                 processed += 1
                 
+                # Load exif data and store GNSS position if present
+                # or load camera cooridnates from other sensors
+                exif_data = []
+                try:
+                    exif_data = piexif.load("{}/imgs/{}".format(os.getcwd(), img2))
+                except:
+                    print("Error loading exif data. Image file could be corrupted.")
 
-                # Load exif data and store GNSS position #################### Attenzione importare anche N E reference per sapere come è stata importata la latitudine e long
-                exif_data = piexif.load("{}/imgs/{}".format(os.getcwd(), img2))
-
-                if len(exif_data['GPS'].keys()) != 0:
+                if exif_data != [] and len(exif_data['GPS'].keys()) != 0:
                     print("img2", img2)
                     lat = exif_data['GPS'][2]
                     long = exif_data['GPS'][4]
@@ -213,36 +254,37 @@ for i in range (LOOP_CYCLES):
                         'slamY' : '-',
                         'slamZ' : '-'
                         }   
+
+                elif exif_data != [] and img2 in camera_coord_other_sensors.keys():
+                    print("img2", img2)
+                    enuX, enuY, enuZ = camera_coord_other_sensors[img2][0], camera_coord_other_sensors[img2][1], camera_coord_other_sensors[img2][2]
+                    position_dict[img2] = {
+                        'enuX' : enuX,
+                        'enuY' : enuY,
+                        'enuZ' : enuZ,
+                        'slamX' : '-',
+                        'slamY' : '-',
+                        'slamZ' : '-'
+                        }   
+
                 else:
-                    if img2 in gt_dict.keys():
-                        print("img2", img2)
-                        enuX, enuY, enuZ = gt_dict[img2][0], gt_dict[img2][1], gt_dict[img2][2]
+                    position_dict[img2] = {
+                        'enuX' : '-',
+                        'enuY' : '-',
+                        'enuZ' : '-',
+                        'slamX' : '-',
+                        'slamY' : '-',
+                        'slamZ' : '-'
+                        }   
 
-                        position_dict[img2] = {
-                            'enuX' : enuX,
-                            'enuY' : enuY,
-                            'enuZ' : enuZ,
-                            'slamX' : '-',
-                            'slamY' : '-',
-                            'slamZ' : '-'
-                            }   
-                    else:
-                        position_dict[img2] = {
-                            'enuX' : '-',
-                            'enuY' : '-',
-                            'enuZ' : '-',
-                            'slamX' : '-',
-                            'slamY' : '-',
-                            'slamZ' : '-'
-                            }   
-
-    # LOCAL BUNDLE ADJUSTMENT
+    # INCREMENTAL RECONSTRUCTION
     kfrms = os.listdir(KEYFRAMES_DIR)
     kfrms.sort()
     
-    if len(kfrms) >= 30 and newer_imgs == True: # 3 is mandatory or the pointer will not updated untill min of len(kfrms) is reached  
-        start_loop = time.time()      
+    if len(kfrms) >= MIN_KEYFRAME_FOR_INITIALIZATION and newer_imgs == True:
+        start_loop = time.time()
         print(f"[LOOP : {i}]")
+        print(f"DYNAMIC MATCHING WINDOW: ", SEQUENTIAL_OVERLAP)
 
         # FIRST LOOP IN COLMAP - INITIALIZATION
         if ended_first_colmap_loop == False:
@@ -294,15 +336,8 @@ for i in range (LOOP_CYCLES):
             ended_first_colmap_loop = True
 
 
-        # ALL COLMAP LOOPS AFTER THE FIRST - Model growth
+        # ALL COLMAP LOOPS AFTER THE FIRST - MODEL GROWTH
         elif ended_first_colmap_loop == True:
-            # subprocess examples:
-            # https://stackabuse.com/executing-shell-commands-with-python/
-            # subprocess.call([COLMAP_EXE_PATH / "colmap", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
-            # subprocess.run([COLMAP_EXE_PATH / "colmap", "feature_extractor", "--project_path", CURRENT_DIR / "lib" / "sift_first_loop.ini"], stdout=subprocess.DEVNULL)
-            # p = subprocess.Popen([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "{}".format(SEQUENTIAL_OVERLAP), "--SequentialMatching.quadratic_overlap", "1"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-            # p.communicate()
-            # p.wait()
 
             if CUSTOM_FEATURES == False:
                 # Feature extraction               
@@ -321,13 +356,21 @@ for i in range (LOOP_CYCLES):
             # Sequential matcher
             st_time = time.time()            
             #p = subprocess.Popen([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--project_path", CURRENT_DIR / "lib" / "matcher.ini"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-            p = subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "{}".format(SEQUENTIAL_OVERLAP), "--SequentialMatching.quadratic_overlap", "1"], stdout=subprocess.DEVNULL)
+            if LOOP_CLOSURE_DETECTION == False:
+                # Matching without loop closures (for all kind of local features)
+                p = subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "{}".format(SEQUENTIAL_OVERLAP), "--SequentialMatching.quadratic_overlap", "1"], stdout=subprocess.DEVNULL)
+            elif LOOP_CLOSURE_DETECTION == True and CUSTOM_FEATURES == False:
+                # Matching with loop closures (only for RootSIFT)
+                p = subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "sequential_matcher", "--database_path", DATABASE, "--SequentialMatching.overlap", "{}".format(SEQUENTIAL_OVERLAP), "--SequentialMatching.quadratic_overlap", "1", "--SequentialMatching.loop_detection", "1", "--SequentialMatching.vocab_tree_path", VOCAB_TREE], stdout=subprocess.DEVNULL)
+            else:
+                print("Not compatible option for loop closure detection. Quit.")
+                quit()
             end_time = time.time()
             print("SEQUENTIAL MATCHER: ", end_time-st_time)
             
             # Triangulation and BA
             st_time = time.time()
-            subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"])
+            subprocess.call([COLMAP_EXE_PATH / f"{colmap_exe}", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper.ini"], stdout=subprocess.DEVNULL)
             end_time = time.time()
             print("MAPPER: ", end_time-st_time)
            
@@ -338,52 +381,41 @@ for i in range (LOOP_CYCLES):
             print("MODEL CONVERSION: ", end_time-st_time)
             
             
+        # Export cameras
+        if DEBUG:
+            lines, oriented_dict = export_cameras.ExportCameras(OUT_FOLDER / "images.txt", img_dict)
+            with open(OUT_FOLDER / "loc.txt", 'w') as file:
+                for line in lines:
+                    file.write(line)
 
-            
-            
-
-            
-
-        lines, oriented_dict = export_cameras.ExportCameras(OUT_FOLDER / "images.txt", img_dict)
-        with open(OUT_FOLDER / "loc.txt", 'w') as file:
-            for line in lines:
-                file.write(line)
-
+        # Keep track of sucessfully oriented frames in the current img_batch
         for im_input_format in img_batch:
             im_zero_format = img_dict[im_input_format]
             img_batch_n.append(int(im_zero_format[:-4]))
             if int(im_zero_format[:-4]) in list(oriented_dict.keys()):
                 oriented_imgs_batch.append(int(im_zero_format[:-4]))
 
-        #if len(oriented_imgs_batch) != 0:
         # Define new reference img (pointer)
-        last_img_n = max(list(oriented_dict.keys())) #max(oriented_imgs_batch)
+        last_img_n = max(list(oriented_dict.keys()))
         max_img_n = max(img_batch_n)
         img_name = Id2name(last_img_n)
         inverted_img_dict = {v: k for k, v in img_dict.items()}
         for c, el in enumerate(imgs):
-            #print(c,el)
             if el == inverted_img_dict[img_name]:
-                pointer = c
-        #pointer = imgs.index(inverted_img_dict[img_name])
+                pointer = c # pointer to the last oriented image
         delta = max_img_n - last_img_n
 
-
+        # Update dynamic window for sequential matching
         if delta != 0:
             SEQUENTIAL_OVERLAP = INITIAL_SEQUENTIAL_OVERLAP + 2*delta
         else:
             SEQUENTIAL_OVERLAP = INITIAL_SEQUENTIAL_OVERLAP
 
-        
-
 
         oriented_dict_list = list(oriented_dict.keys())
         oriented_dict_list.sort()
-        out = open("./buttare1.txt", 'w')
-        f1 = open("./f1.txt", 'w')
-        f2 = open("./f2.txt", 'w')
 
-        # Calculate transformation to report new slam solution on the old one
+        # Calculate transformation to report new slam solution on the reference one
         if one_time == True:
             list1 = []
             list2 = []
@@ -391,52 +423,15 @@ for i in range (LOOP_CYCLES):
                 img_name = inverted_img_dict[Id2name(img_id)]
                 if img_name in reference_imgs_dict.keys():
                     list1.append(oriented_dict[img_id][1])
-                    f1.write("{},{},{},{}\n".format(img_id, oriented_dict[img_id][1][0], oriented_dict[img_id][1][1], oriented_dict[img_id][1][2]))
                     list2.append(reference_imgs_dict[img_name])
-                    f2.write("{},{},{},{}\n".format(img_id, reference_imgs_dict[img_name][0], reference_imgs_dict[img_name][1], reference_imgs_dict[img_name][2]))
-            R_, t_, scale_factor_ = Helmert(list1, list2, OS)
-            #R_, t_ = Helmert(list2, list1)
-            print(R_, t_)
-            #print("reference_imgs_dict", reference_imgs_dict)
-            #print(img_dict); quit()
+            R_, t_, scale_factor_ = Helmert(list1, list2, OS, DEBUG)
 
-            ##################################################à
-            #xxx = range(0, len(list1))
-            #yyy1 = [el[2] for el in list1]
-            #yyy2 = [el[2] for el in list2]
-            #zzz = [0 for el in list1]
-            #plt.ion()
-            #interactive(True)
-            #fig = plt.figure()
-            #ax = plt.axes(projection ='3d')
-            #MIN = min([min(Xslam),min(Yslam),min(Zslam)])
-            #MAX = max([max(Xslam),max(Yslam),max(Zslam)])
-            #ax.cla()
-            #ax.scatter(xxx, yyy1, zzz, 'black')
-            #ax.scatter(xxx, yyy2, zzz, 'red')
-            #ax.set_title('c')
-            ##ax.set_xticks([])
-            ##ax.set_yticks([])
-            ##ax.set_zticks([])           
-            #ax.view_init(azim=0, elev=90)
-            #plt.show(block=True)
-
-        f1.close(); f2.close()
-
-
-        for img_id in oriented_dict_list:    ################################################# OTTIMIZZARE, VANNO AGGIUNTE SOLO LE NUOVE IMMAGINI ORIENTATE, NO LOOP SU TUTTE LE IMMAGINI
-            #print(img_id)
-            #print(img_dict)
-            #print(oriented_dict)
-            #print(position_dict)
+        # Apply rotantion matrix to move the updated photogrammetric model to the first model reference system
+        for img_id in oriented_dict_list:
             img_name = inverted_img_dict[Id2name(img_id)]
-            #print(img_name)
-            #print(position_dict); quit()
             ref_img = list(position_dict.keys())[0]
-            #print("ref_img", ref_img)
 
             if img_name in position_dict.keys():
-                #print("img_name", img_name)
                 if img_name == ref_img:
                     ref_img_id = img_id
                     quat1 = quaternion.Quaternion(oriented_dict[img_id][2][0])
@@ -444,124 +439,29 @@ for i in range (LOOP_CYCLES):
                     position_dict[img_name]['slamX'] = 0.0
                     position_dict[img_name]['slamY'] = 0.0
                     position_dict[img_name]['slamZ'] = 0.0
-                    out.write("{} 0.00 0.00 0.00 0.00 0.00 0.00 0.00 {} {}\n\n".format(img_id, 1, img_name))
-                    #Xslam.append(0.0)
-                    #Yslam.append(0.0)
-                    #Zslam.append(0.0)
                 
+                # The first model becomes the reference model (reference_imgs_dict)
                 elif img_name != ref_img and one_time == False:
-                    #quat2 = quaternion.Quaternion(oriented_dict[img_id][2][0])
-                    #t2 = oriented_dict[img_id][2][1]
-                    #q2_1 = quat2 * quat1.inverse
-                    #t2_1 = -np.dot((quat2 * quat1.inverse).rotation_matrix, t1) + t2
-                    #q_matrix = q2_1.transformation_matrix
-                    #q_matrix = q_matrix[0:3,0:3]
-                    #camera_location = np.dot(-q_matrix.transpose(),t2_1)
                     vec_pos = np.array([[oriented_dict[img_id][1][0], oriented_dict[img_id][1][1], oriented_dict[img_id][1][2]]]).T
                     camera_location = vec_pos
                     position_dict[img_name]['slamX'] = camera_location[0,0]
                     position_dict[img_name]['slamY'] = camera_location[1,0]
                     position_dict[img_name]['slamZ'] = camera_location[2,0]
-                    #Xslam.append(camera_location[0,0])
-                    #Yslam.append(camera_location[1,0])
-                    #Zslam.append(camera_location[2,0])
-                    out.write("{},{},{}\n".format(camera_location[0,0], camera_location[1,0], camera_location[2,0]))
-                    #out.write("{} {} {} {} {} {} {} {} {} {}\n\n".format(img_id, q2_1.scalar, q2_1.imaginary[0], q2_1.imaginary[1], q2_1.imaginary[2], t2_1[0][0], t2_1[1][0], t2_1[2][0], 1, img_name))
                     reference_imgs_dict[img_name] = (camera_location[0,0], camera_location[1,0], camera_location[2,0])
                 
+                # The subsequent models must be rotoranslated on the reference model, to always keep the same reference system
                 elif img_name != ref_img and one_time == True:
-                    #f1 = open("./f1.txt", 'w')
-                    #f2 = open("./f2.txt", 'w')
-                    #list1 = []
-                    #list2 = []
-                    #for img_id in oriented_dict_list:
-                    #    print()
-                    #    print()
-                    #    print("img_id", img_id)
-                    #    img_name = inverted_img_dict[Id2name(img_id)]
-                    #    print("img_name", img_name)
-                    #    if img_name in reference_imgs_dict.keys():
-                    #        list1.append(oriented_dict[img_id][1])
-                    #        f1.write("{},{},{}".format(img_id, oriented_dict[img_id][1][0], oriented_dict[img_id][1][1], oriented_dict[img_id][1][2]))
-                    #        list2.append(reference_imgs_dict[img_name])
-                    #        f2.write("{},{},{}".format(img_id, reference_imgs_dict[img_name][0], reference_imgs_dict[img_name][1], reference_imgs_dict[img_name][2]))
-                    #R_, t_ = Helmert(list1, list2)
-                    #f1.close()
-                    #f2.close()
-
-                    #print("one_time == True")
-                    #quat2 = quaternion.Quaternion(oriented_dict[img_id][2][0])
-                    #t2 = oriented_dict[img_id][2][1]
-                    #q2_1 = quat2 * quat1.inverse
-                    #t2_1 = -np.dot((quat2 * quat1.inverse).rotation_matrix, t1) + t2
-                    #q_matrix = q2_1.transformation_matrix
-                    #q_matrix = q_matrix[0:3,0:3]
-                    #camera_location = np.dot(-q_matrix.transpose(),t2_1)
                     vec_pos = np.array([[oriented_dict[img_id][1][0], oriented_dict[img_id][1][1], oriented_dict[img_id][1][2]]]).T
-                    #Tmx = np.array([
-                    #    [R_[0,0], R_[0,1], R_[0,2], t_[0]],
-                    #    [R_[1,0], R_[1,1], R_[1,2], t_[1]],
-                    #    [R_[2,0], R_[2,1], R_[2,2], t_[2]],
-                    #    [0, 0, 0, 1]
-                    #])
-                    #vec_omo = np.array([vec_pos[0,0], vec_pos[1,0], vec_pos[2,0], 1]).T
-                    #aaaaaaaaa = np.matmul(Tmx, vec_omo)
-                    #a = np.array([
-                    #    [aaaaaaaaa[0]/aaaaaaaaa[3]],
-                    #    [aaaaaaaaa[1]/aaaaaaaaa[3]],
-                    #    [aaaaaaaaa[2]/aaaaaaaaa[3]]
-                    #    ])
-                    #R_ = Tmx[:3,:3]; t_ = Tmx[:3,3].reshape((3,1))
-                    #print(Tmx)
-                    #print(R_)
-                    #print(t_)
-                    
                     vec_pos_scaled = np.dot(R_, vec_pos) + t_
-                    #t_ = t_.reshape((3,))
-                    
-                    #print("R_", R_); print("t_",t_); print(vec_pos)
-                    #print()
-                    #print()
-                    #print("a", a)
-                    #print("vec_pos_scaled", vec_pos_scaled)
                     position_dict[img_name]['slamX'] = vec_pos_scaled[0,0]
                     position_dict[img_name]['slamY'] = vec_pos_scaled[1,0]
                     position_dict[img_name]['slamZ'] = vec_pos_scaled[2,0]
-                    #Xslam.append(vec_pos_scaled[0,0])
-                    #Yslam.append(vec_pos_scaled[1,0])
-                    #Zslam.append(vec_pos_scaled[2,0])
-                    #out.write("{} {} {} {} {} {} {} {} {} {}\n\n".format(img_id, q2_1.scalar, q2_1.imaginary[0], q2_1.imaginary[1], q2_1.imaginary[2], t2_1[0][0], t2_1[1][0], t2_1[2][0], 1, img_name))
-                    out.write("{},{},{}\n".format(vec_pos_scaled[0,0], vec_pos_scaled[1,0], vec_pos_scaled[2,0]))
-        
-        
-        out.close()
-        #if one_time == True: quit()
+
         one_time = True
         
-        
-
-        #plt.ion()
-        #interactive(True)
-        #fig = plt.figure()
-        #ax = plt.axes(projection ='3d')
-        #MIN = min([min(Xslam),min(Yslam),min(Zslam)])
-        #MAX = max([max(Xslam),max(Yslam),max(Zslam)])
-        #ax.cla()
-        #ax.scatter(Xslam, Yslam, Zslam, 'black')
-        #ax.set_title('c')
-        ##ax.set_xticks([])
-        ##ax.set_yticks([])
-        ##ax.set_zticks([])           
-        #ax.view_init(azim=0, elev=90)
-        #plt.show(block=True)
-
-        #print(position_dict)
 
 
-
-        
-
-        if ONLY_SLAM != True:
+        if ONLY_SLAM != False:
 
             # INITIALIZATION SCALE FACTOR AND KALMAN FILTER
             if len(kfrms) == 30:
@@ -575,7 +475,7 @@ for i in range (LOOP_CYCLES):
                         slam_coord.append((position_dict[img]['slamX'], position_dict[img]['slamY'], position_dict[img]['slamZ']))
                 #print(slam_coord, gnss_coord)
                 
-                R, t, scale_factor = Helmert(slam_coord, gnss_coord, OS)
+                R, t, scale_factor = Helmert(slam_coord, gnss_coord, OS, DEBUG)
                 #print(R, t)
     
                 #Store positions

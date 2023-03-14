@@ -5,14 +5,15 @@ from PIL import Image, ImageOps
 import numpy as np
 
 from lib import database
+from lib import BruteForce
 
-MAX_RATIO = 0.40 #0.60
-MIN_RATIO = 0.05
-INNOVATION_THRESH = 0.001#1.5 # Solitamente funzionava con 1
+MAX_RATIO = 0.90 #0.60
+MIN_RATIO = 0
 
-####
-#### RootSift
-####
+# PARAM FOR THE RADIOMETRIC APPROACH
+# Try to normalize respect mean and std to reject static frames
+RESIZE_SCALE_FACTOR = 1 # It can be usefull for reduce computation time
+INNOVATION_THRESH = 0.001 # 1.5
 
 def RootSift(img_name, desc_folder, N_kpts):
 
@@ -26,144 +27,6 @@ def RootSift(img_name, desc_folder, N_kpts):
     
     return kp, desc, kp_numb
 
-
-####
-#### Brute-Force openCV2
-####
-
-def BrForce(des1, des2, check, matching_distance, crossCheck_bool, matching_strategy, print_debug = True, ratio_thresh=0.8):
-    if check == 'without_Lowe_ratio_test' and matching_distance=='L2':
-        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=crossCheck_bool)
-        print(des1)
-        print(des2)
-        print(type(des1))
-        print(type(des2))
-        print(des1.shape)
-        print(des2.shape)
-        matches = bf.match(des1,des2)
-        #matches = sorted(matches, key = lambda x: x.distance)   # Sort matches by distance.  Best come first.
-
-        if print_debug == True :
-            print('type(matches) : '), print(type(matches))
-            print('shape(matches) : '), print(len(matches))
-            print(matches[0]),print(matches[1]),print(matches[2]),print(matches[3])
-            print(matches[0].queryIdx)
-            print(matches[0].trainIdx)
-            print(matches[0].distance)
-
-        return matches
-            
-    elif check == 'without_Lowe_ratio_test' and matching_distance=='NORM_HAMMING':
-
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=crossCheck_bool)
-        matches = bf.match(des1,des2)
-
-        if print_debug == True :
-            print('type(matches) : '), print(type(matches))
-            print('shape(matches) : '), print(len(matches))
-            print(matches[0]),print(matches[1]),print(matches[2]),print(matches[3])
-            print(matches[0].queryIdx)
-            print(matches[0].trainIdx)
-            print(matches[0].distance)
-
-        return matches
-    
-    elif check == 'Lowe_ratio_test' and matching_distance=='L2':
-    
-        print('check: {}'.format(check))
-        print('matching_distance: {}'.format(matching_distance))
-        print('matching_strategy: {}'.format(matching_strategy))
-        print('ratio_thresh: {}'.format(ratio_thresh))
-
-        bf = cv2.BFMatcher(cv2.NORM_L2, False)
-
-        # Ratio Test
-        def ratio_test(matches, ratio_thresh):
-            prefiltred_matches = []
-            for m,n in matches:
-                #print('m={} n={}'.format(m,n))
-                if m.distance < ratio_thresh * n.distance:
-                    prefiltred_matches.append(m)
-            return prefiltred_matches
-        
-        if matching_strategy == 'unidirectional':
-            matches01 = bf.knnMatch(des1,des2,k=2)
-            good_matches01 = ratio_test(matches01, ratio_thresh)
-            return good_matches01
-            
-        elif matching_strategy == 'intersection':
-            matches01 = bf.knnMatch(des1,des2,k=2)
-            matches10 = bf.knnMatch(des2,des1,k=2)
-            good_matches01 = ratio_test(matches01, ratio_thresh)
-            good_matches10 = ratio_test(matches10, ratio_thresh)
-            good_matches10_ = {(m.trainIdx, m.queryIdx) for m in good_matches10}
-            prefiltred_matches = [m for m in good_matches01 if (m.queryIdx, m.trainIdx) in good_matches10_]
-            return prefiltred_matches
-            
-        elif matching_strategy == 'union':
-            matches01 = bf.knnMatch(des1,des2,k=2)
-            matches10 = bf.knnMatch(des2,des1,k=2)
-            good_matches01 = ratio_test(matches01, ratio_thresh)
-            good_matches10 = ratio_test(matches10, ratio_thresh)
-            good_matches10_ = {(m.trainIdx, m.queryIdx) for m in good_matches10}
-            other_matches = [m for m in good_matches01 if not (m.queryIdx, m.trainIdx) in good_matches10_]
-            for m in good_matches10: # added 01/10/2022 
-                query = m.queryIdx; train = m.trainIdx # added 01/10/2022
-                m.trainIdx = query # added 01/10/2022
-                m.queryIdx = train # added 01/10/2022
-            prefiltred_matches = good_matches10 + other_matches
-            return prefiltred_matches
-            
-    elif check == 'Lowe_ratio_test' and matching_distance=='NORM_HAMMING':
-    
-        print('check: {}'.format(check))
-        print('matching_distance: {}'.format(matching_distance))
-        print('matching_strategy: {}'.format(matching_strategy))
-        print('ratio_thresh: {}'.format(ratio_thresh))
-        
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, False)
-
-        # Ratio Test
-        def ratio_test(matches, ratio_thresh):
-            prefiltred_matches = []
-            for m,n in matches:
-                #print('m={} n={}'.format(m,n))
-                if m.distance < ratio_thresh * n.distance:
-                    prefiltred_matches.append(m)
-            return prefiltred_matches
-        
-        if matching_strategy == 'unidirectional':
-            matches01 = bf.knnMatch(des1,des2,k=2)
-            good_matches01 = ratio_test(matches01, ratio_thresh)
-            return good_matches01
-            
-        elif matching_strategy == 'intersection':
-            matches01 = bf.knnMatch(des1,des2,k=2)
-            matches10 = bf.knnMatch(des2,des1,k=2)
-            good_matches01 = ratio_test(matches01, ratio_thresh)
-            good_matches10 = ratio_test(matches10, ratio_thresh)
-            good_matches10_ = {(m.trainIdx, m.queryIdx) for m in good_matches10}
-            prefiltred_matches = [m for m in good_matches01 if (m.queryIdx, m.trainIdx) in good_matches10_]
-            return prefiltred_matches
-            
-        elif matching_strategy == 'union':
-            matches01 = bf.knnMatch(des1,des2,k=2)
-            matches10 = bf.knnMatch(des2,des1,k=2)
-            good_matches01 = ratio_test(matches01, ratio_thresh)
-            good_matches10 = ratio_test(matches10, ratio_thresh)
-            good_matches10_ = {(m.trainIdx, m.queryIdx) for m in good_matches10}
-            other_matches = [m for m in good_matches01 if not (m.queryIdx, m.trainIdx) in good_matches10_]
-            for m in good_matches10: # added 01/10/2022 
-                query = m.queryIdx; train = m.trainIdx # added 01/10/2022
-                m.trainIdx = query # added 01/10/2022
-                m.queryIdx = train # added 01/10/2022
-            prefiltred_matches = good_matches10 + other_matches
-            return prefiltred_matches
-
-
-####
-#### StaticRejection
-####
 
 def NextImg(last_img):
     if last_img+1 < 10:
@@ -180,22 +43,21 @@ def NextImg(last_img):
         next_img = "{}".format(last_img+1)
     return next_img
 
-def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, newer_imgs, last_img, img_dict, img_batch, pointer, colmap_exe): # pointer, delta,
-    delta = 0
+
+def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, CURRENT_DIR, KEYFRAMES_DIR, COLMAP_EXE_PATH, MAX_N_FEATURES, ref_matches, DEBUG, newer_imgs, last_img, img_dict, img_batch, pointer, colmap_exe):
+    # ROOTSIFT APPROACH
     if STATIC_IMG_REJECTION_METHOD == 'root_sift':
-
         TEMP_DIR = CURRENT_DIR / "temp"
-
         shutil.rmtree(TEMP_DIR / "pair")
         os.makedirs(TEMP_DIR / "pair")
         shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), TEMP_DIR / "pair" / "{}".format(img1))
         shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), TEMP_DIR / "pair" / "{}".format(img2))
 
-        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "database_creator", "--database_path", TEMP_DIR / "db.db"])
-        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", str(MAX_N_FEATURES)])
+        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "database_creator", "--database_path", TEMP_DIR / "db.db"], stdout=subprocess.DEVNULL)
+        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "feature_extractor", "--database_path", TEMP_DIR / "db.db", "--image_path", TEMP_DIR / "pair", "SiftExtraction.max_num_features", str(MAX_N_FEATURES)], stdout=subprocess.DEVNULL)
         #subprocess.run(["python3", CURRENT_DIR / "lib" / "RootSIFT.py", "--Path", TEMP_DIR / "db.db", "--Output", TEMP_DIR], stdout=subprocess.DEVNULL)
-        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "sequential_matcher", "--database_path", TEMP_DIR / "db.db", "--SequentialMatching.overlap", "1"])
-        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_for_static_rejection.ini"])
+        subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "sequential_matcher", "--database_path", TEMP_DIR / "db.db", "--SequentialMatching.overlap", "1"], stdout=subprocess.DEVNULL)
+        #subprocess.run([COLMAP_EXE_PATH / f"{colmap_exe}", "mapper", "--project_path", CURRENT_DIR / "lib" / "mapper_for_static_rejection.ini"], stdout=subprocess.DEVNULL)
 
         #kp1, desc1, kp_numb1 = RootSift(img1, TEMP_DIR, 8000)
         #kp2, desc2, kp_numb2 = RootSift(img2, TEMP_DIR, 8000)
@@ -233,35 +95,37 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
                 control_ratio = len(intersection) / len(vec_ref)
                 print("control_ratio", control_ratio)
 
-                if control_ratio < MAX_RATIO and control_ratio > MIN_RATIO and os.path.exists(TEMP_DIR / "0"):
+                if control_ratio < MAX_RATIO and control_ratio > MIN_RATIO: # and os.path.exists(TEMP_DIR / "0"):
                     #shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}".format(img1))
                     shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
                     img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)))
                     print("\n.. added img\n")
                     ref_matches = matches_matrix
-                    pointer += 1 + delta
-                    delta = 0
+                    pointer += 1 #+ delta
+                    #delta = 0
                     newer_imgs = True
                     img_batch.append(img2)
                     return ref_matches, newer_imgs, NextImg(int(last_img)), img_dict, img_batch, pointer # pointer, delta, 
 
                 else:
-                    delta += 1
+                    #delta += 1
                     print("\n.. NO\n")
                     return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
                 
         elif len(matches.keys()) == 0:
-            delta += 1
+            #delta += 1
             print("\n.. NO .. len(matches.keys()) == 0\n")
             return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
 
-    ### RADIOMETRIC APPROACH
+    # RADIOMETRIC APPROACH
     elif STATIC_IMG_REJECTION_METHOD == 'radiometric':
+        # 'Try' is necessary because main loop looks for new images and the last one can be incomplete because
+        # it is copied from other folders, and the procedure can be unfineshed
         try:
             im1 = Image.open(IMGS_FROM_SERVER / img1)
             im2 = Image.open(IMGS_FROM_SERVER / img2)
-            im1.resize((round(im1.size[0]*1), round(im1.size[1]*1)))
-            im2.resize((round(im2.size[0]*1), round(im2.size[1]*1)))
+            im1.resize((round(im1.size[0]*RESIZE_SCALE_FACTOR), round(im1.size[1]*RESIZE_SCALE_FACTOR)))
+            im2.resize((round(im2.size[0]*RESIZE_SCALE_FACTOR), round(im2.size[1]*RESIZE_SCALE_FACTOR)))
             im1_gray = ImageOps.grayscale(im1)
             im2_gray = ImageOps.grayscale(im2)
 
@@ -279,31 +143,30 @@ def StaticRejection(STATIC_IMG_REJECTION_METHOD, img1, img2, IMGS_FROM_SERVER, C
             #innovation = innovation/ref
 
             innovation = np.absolute(mean2 - mean1)
-            #print("INNOVATION: ", innovation)
 
             if innovation > INNOVATION_THRESH:
                 if ref_matches == []:
-                    ref_matches = ["-"]
+                    ref_matches = ["-"] # It is used for compatibilities with frame rejection approches that needs matches matrix
                     shutil.copy(IMGS_FROM_SERVER / "{}".format(img1), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
                     shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img)+1)))
                     img_dict["{}".format(img1)] = "{}.jpg".format(NextImg(int(last_img)))
                     img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)+1))
                     pointer += 1
-                    return ref_matches, newer_imgs, NextImg(int(last_img)+1), img_dict, img_batch, pointer # pointer, delta, 
-                else:
+                    return ref_matches, newer_imgs, NextImg(int(last_img)+1), img_dict, img_batch, pointer
+
+                elif ref_matches == ["-"]:
                     shutil.copy(IMGS_FROM_SERVER / "{}".format(img2), KEYFRAMES_DIR / "{}.jpg".format(NextImg(int(last_img))))
                     img_dict["{}".format(img2)] = "{}.jpg".format(NextImg(int(last_img)))
-                    pointer += 1 + delta
-                    delta = 0
+                    pointer += 1
                     newer_imgs = True
                     img_batch.append(img2)
-                    return ref_matches, newer_imgs, NextImg(int(last_img)), img_dict, img_batch, pointer # pointer, delta, 
+                    return ref_matches, newer_imgs, NextImg(int(last_img)), img_dict, img_batch, pointer
+
             else:
-                delta += 1
-                print("!! Frame rejeccted !!", end='\r')
-                return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer # pointer, delta, 
+                print("!! Frame rejeccted. innovation < INNOVATION_THRESH !!", end='\r')
+                return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer
+
         except:
-            delta += 1
             print("!! Frame truncated !!")
             return ref_matches, newer_imgs, last_img, img_dict, img_batch, pointer
     

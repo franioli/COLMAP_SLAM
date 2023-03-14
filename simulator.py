@@ -3,7 +3,7 @@ import shutil
 import time
 from PIL import Image
 
-INPUT_DIR = r"C:\Users\Luscias\Desktop\3DOM\DATASETS\MH_01_easy\mav0\cam0\data"
+INPUT_DIR = r"/home/luca/Desktop/ION2023/EuRoC_MAV/MH_01_easy/mav0/cam0/data"
 OUTPUT_DIR = r"./imgs"
 
 
@@ -40,13 +40,11 @@ imgs.sort()
 #    shutil.copy("{}/img{}.jpg".format(INPUT_DIR, i), "{}/output{}.jpg".format(OUTPUT_DIR, i))
 #    time.sleep(0.25)
 
-for i in range(0, 100): #cam0 parte da 0, cam1 parte da 30
+### EuRoC Machine Hall
+for i in range(0, 1000000, 20):
     img = imgs[i]
     #shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i))
     im = Image.open("{}/{}".format(INPUT_DIR, img))
     rgb_im = im.convert('RGB')
     rgb_im.save("{}/{}.jpg".format(OUTPUT_DIR, img[:-4]))
-    time.sleep(0.05) #0.05
-
-
-
+    time.sleep(1)

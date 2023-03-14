@@ -82,7 +82,7 @@ def ExtractCustomFeatures(CUSTOM_DETECTOR, PATH_TO_LOCAL_FEATURES, DATABASE, kfr
         for img in kfrms:
             if img not in existing_images:
                 im = cv2.imread(str(KEYFRAMES_DIR / img), cv2.IMREAD_GRAYSCALE)
-                orb = cv2.ORB_create(nfeatures=512)
+                orb = cv2.ORB_create(nfeatures=1024)
                 kp = orb.detect(im,None)
                 kp, des = orb.compute(im, kp)
                 all_kpts = np.zeros((len(kp), 2))
