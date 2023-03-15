@@ -33,22 +33,13 @@ To run COLMAP SLAM in docker:
 
 `> python3 main.py`
 
-### Install on Linux
+### Install in Conda Environment
+
+To install a an Anaconda environment (Linux, Windows, MacOS)
 
 ```bash
 conda create -n colmap_slam python=3.10
-conda activate image_rename_batch
-python3.8 -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### Run in Windows
-
-Installation in a conda environment:
-
-```bash
-conda create -n colmap_slam python=3.10
-conda activate image_rename_batch
+conda activate colmap_slam
 python3.8 -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
