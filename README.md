@@ -44,8 +44,13 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Change conf.ini
-`> python3 main.py`
+### Run COLMAP_SLAM
+
+Change `conf.ini` according to your needs and run
+
+```bash
+python3 main.py
+```
 
 ### Notes
 
