@@ -3,7 +3,7 @@ import shutil
 import time
 from PIL import Image
 
-INPUT_DIR = r"/home/luca/Desktop/ION2023/EuRoC_MAV/MH_01_easy/mav0/cam0/data"
+INPUT_DIR = r"data/MH_01_easy/mav0/cam0/data"
 OUTPUT_DIR = r"./imgs"
 
 
