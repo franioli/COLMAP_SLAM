@@ -3,6 +3,7 @@ data/
 imgs/
 colmap_imgs/
 outs/ 
+config.ini
 
 # VScode
 # .vscode/
