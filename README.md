@@ -40,7 +40,7 @@ To install a an Anaconda environment (Linux, Windows, MacOS)
 ```bash
 conda create -n colmap_slam python=3.10
 conda activate colmap_slam
-python3.8 -m pip install --upgrade pip
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 

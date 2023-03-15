@@ -1,5 +1,8 @@
 # Specific
 data/
+imgs/
+colmap_imgs/
+outs/ 
 
 # VScode
 # .vscode/

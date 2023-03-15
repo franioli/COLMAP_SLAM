@@ -26,25 +26,25 @@ def Id2name(id):
 imgs = os.listdir(INPUT_DIR)
 imgs.sort()
 
-#for i in range (len(os.listdir(INPUT_DIR))):
+# for i in range (len(os.listdir(INPUT_DIR))):
 #    shutil.copy("{}/output{}.jpg".format(INPUT_DIR, i), "{}/output{}.jpg".format(OUTPUT_DIR, i))
 #    time.sleep(0.5)
 
 ##for i in range(140, len(os.listdir(INPUT_DIR))):
-#for i in range(140, 300):
+# for i in range(140, 300):
 #    img = Id2name(i)
 #    shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i-1))
 #    time.sleep(0.25)
 
-#for i in range(0, 600):
+# for i in range(0, 600):
 #    shutil.copy("{}/img{}.jpg".format(INPUT_DIR, i), "{}/output{}.jpg".format(OUTPUT_DIR, i))
 #    time.sleep(0.25)
 
 ### EuRoC Machine Hall
 for i in range(0, 1000000, 20):
     img = imgs[i]
-    #shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i))
+    # shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i))
     im = Image.open("{}/{}".format(INPUT_DIR, img))
-    rgb_im = im.convert('RGB')
+    rgb_im = im.convert("RGB")
     rgb_im.save("{}/{}.jpg".format(OUTPUT_DIR, img[:-4]))
     time.sleep(1)
