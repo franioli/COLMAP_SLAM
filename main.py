@@ -12,30 +12,25 @@
 # treat images with a class, so it will be easer to keep track og id, original, names, orientation, etc
 
 import configparser
+import os
+import shutil
 import subprocess
 import time
-import shutil
-import os
-import numpy as np
 from pathlib import Path
+
 import cv2
-import piexif
-from pyquaternion import quaternion
-from scipy.spatial.transform import Rotation as R
-from scipy import linalg
 import matplotlib.pyplot as plt
-from mpl_toolkits import mplot3d
+import numpy as np
+import piexif
 from matplotlib import interactive
+from mpl_toolkits import mplot3d
+from pyquaternion import quaternion
+from scipy import linalg
+from scipy.spatial.transform import Rotation as R
 
-from lib import database
-from lib import static_rejection
-from lib import export_cameras
-from lib import ConvertGnssRefSystm
-from lib import EKF
-from lib import covariance_mat
-from lib import ExtractCustomFeatures
-from lib.utils import Id2name, Helmert
-
+from lib import (EKF, ConvertGnssRefSystm, ExtractCustomFeatures,
+                 covariance_mat, database, export_cameras, static_rejection)
+from lib.utils import Helmert, Id2name
 
 ### OPTIONS FOR EKF - Development temporarily interrupted, do not change values
 T = 0.1
