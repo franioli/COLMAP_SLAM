@@ -46,7 +46,7 @@ def NextImg(last_img):
     return next_img
 
 
-@timeit
+# @timeit
 def StaticRejection(
     STATIC_IMG_REJECTION_METHOD,
     img1,

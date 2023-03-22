@@ -2,7 +2,8 @@ import logging
 from copy import deepcopy
 
 # import os
-# import shutil
+import shutil
+
 # import subprocess
 from pathlib import Path
 
@@ -33,39 +34,33 @@ logging.basicConfig(
 )
 
 INNOVATION_THRESH = 0.001  # 1.5
+INNOVATION_THRESH_PIX = 10
+MIN_MATCHES = 50
 
 
 class AlikeTracker(object):
-    def __init__(self):
+    def __init__(self, viz_res: bool = True):
         self.pts_prev = None
         self.desc_prev = None
+        self.viz_res = viz_res
 
-    def update(self, img, pts, desc):
-        self.matches = None
-        n_matches = 0
+    def track(self, img, pts, desc):
         if self.pts_prev is None:
             self.pts_prev = pts
             self.desc_prev = desc
+            mpts1, mpts2 = None, None
             match_fig = deepcopy(img)
-            for pt1 in pts:
-                p1 = (int(round(pt1[0])), int(round(pt1[1])))
-                cv2.circle(match_fig, p1, 1, (0, 0, 255), -1, lineType=16)
         else:
-            self.matches = self.mnn_mather(self.desc_prev, desc)
-            mpts1, mpts2 = self.pts_prev[self.matches[:, 0]], pts[self.matches[:, 1]]
-            n_matches = len(self.matches)
-
-            match_fig = deepcopy(img)
-            for pt1, pt2 in zip(mpts1, mpts2):
-                p1 = (int(round(pt1[0])), int(round(pt1[1])))
-                p2 = (int(round(pt2[0])), int(round(pt2[1])))
-                cv2.line(match_fig, p1, p2, (0, 255, 0), lineType=16)
-                cv2.circle(match_fig, p2, 1, (0, 0, 255), -1, lineType=16)
-
+            matches = self.mnn_mather(self.desc_prev, desc)
+            mpts1, mpts2 = self.pts_prev[matches[:, 0]], pts[matches[:, 1]]
+            if self.viz_res:
+                match_fig = self.make_plot(img, mpts1, mpts2)
+            else:
+                match_fig = None
             self.pts_prev = pts
             self.desc_prev = desc
 
-        return self.matches, match_fig, n_matches
+        return mpts1, mpts2, match_fig
 
     def mnn_mather(self, desc1, desc2):
         sim = desc1 @ desc2.transpose()
@@ -76,6 +71,31 @@ class AlikeTracker(object):
         mask = ids1 == nn21[nn12]
         matches = np.stack([ids1[mask], nn12[mask]])
         return matches.transpose()
+
+    def make_plot(self, img, mpts1, mpts2):
+        match_fig = deepcopy(img)
+        for pt1, pt2 in zip(mpts1, mpts2):
+            p1 = (int(round(pt1[0])), int(round(pt1[1])))
+            p2 = (int(round(pt2[0])), int(round(pt2[1])))
+            cv2.line(match_fig, p1, p2, (0, 255, 0), lineType=16)
+            cv2.circle(match_fig, p2, 1, (0, 0, 255), -1, lineType=16)
+        return match_fig
+
+
+def NextImg(last_img):
+    if last_img + 1 < 10:
+        next_img = "00000{}".format(last_img + 1)
+    elif last_img + 1 < 100:
+        next_img = "0000{}".format(last_img + 1)
+    elif last_img + 1 < 1000:
+        next_img = "000{}".format(last_img + 1)
+    elif last_img + 1 < 10000:
+        next_img = "00{}".format(last_img + 1)
+    elif last_img + 1 < 100000:
+        next_img = "0{}".format(last_img + 1)
+    elif last_img + 1 < 1000000:
+        next_img = "{}".format(last_img + 1)
+    return next_img
 
 
 def process_resize(w, h, resize):
@@ -90,35 +110,6 @@ def process_resize(w, h, resize):
     return w_new, h_new
 
 
-def load_torch_image(
-    fname: Union[str, Path],
-    device=torch.device("cpu"),
-    resize_to: Tuple[int] = [-1],
-    as_grayscale: bool = True,
-    as_float: bool = True,
-):
-    fname = str(fname)
-    timg = K.image_to_tensor(cv2.imread(fname), False)
-    timg = K.color.bgr_to_rgb(timg.to(device))
-
-    if as_float:
-        timg = timg.float() / 255.0
-
-    if as_grayscale:
-        timg = K.color.rgb_to_grayscale(timg)
-
-    h0, w0 = timg.shape[2:]
-
-    if resize_to != [-1] and resize_to[0] > w0:
-        timg = K.geometry.resize(timg, size=resize_to, antialias=True)
-        h1, w1 = timg.shape[2:]
-        resize_ratio = (float(w0) / float(w1), float(h0) / float(h1))
-    else:
-        resize_ratio = (1.0, 1.0)
-
-    return timg, resize_ratio
-
-
 class StaticRejection:
     def __init__(
         self,
@@ -127,9 +118,11 @@ class StaticRejection:
         method: str = "alike",
         matcher_cfg: dict = None,
         resize_to: List[int] = [-1],
+        realtime_viz: bool = False,
         viz_res_path: Union[str, Path] = None,
         verbose: bool = False,
     ) -> None:
+        self.last_img = 0
         self.img_dir = Path(img_dir)
         assert self.img_dir.is_dir(), f"Invalid image directory {img_dir}"
 
@@ -151,6 +144,7 @@ class StaticRejection:
 
         # Initialize matching and tracking instances
         if method == "alike":
+            # TODO: use a generic configration dictionary as input for StaticRejection class and check dictionary keys for each method.
             self.matcher_cfg = edict(
                 {
                     "model": "alike-t",
@@ -170,30 +164,6 @@ class StaticRejection:
                 n_limit=self.matcher_cfg.n_limit,
             )
             self.matcher = AlikeTracker()
-
-        # elif self.method == "superglue":
-        #     # TODO: use a generic configration dictionary as input for StaticRejection class and check dictionary keys for each method.
-
-        #     self.matcher_cfg = {
-        #         "weights": "outdoor",
-        #         "keypoint_threshold": 0.01,
-        #         "max_keypoints": 128,
-        #         "match_threshold": 0.2,
-        #         "force_cpu": False,
-        #     }
-        #     self.matcher = SuperGlueMatcher(self.matcher_cfg)
-
-        # elif method == "loftr":
-        #     self.matcher_cfg = edict(
-        #         {
-        #             "device": "cuda",
-        #         }
-        #     )
-        #     device = torch.device(self.matcher_cfg.device)
-        #     self.matcher = KF.LoFTR(pretrained="outdoor").to(device).eval()
-
-        # else:
-        #     raise ValueError("Inalid input method")
 
     def match_alike(self, cur_img_name: Union[str, Path]):
         self.timer = AverageTimer()
@@ -223,17 +193,43 @@ class StaticRejection:
 
         pred = self.model(img, sub_pixel=self.matcher_cfg.subpixel)
         self.timer.update("kpts extraction")
-        matches, match_img, n_matches = self.matcher.update(
+        mkpts1, mkpts2, match_img = self.matcher.track(
             img, pred["keypoints"], pred["descriptors"]
         )
+        if any([mkpts1 is None, mkpts2 is None]):
+            return None
+        if len(mkpts1) < MIN_MATCHES:
+            if self.verbose:
+                logging.info(f"Not enough matches found ({len(mkpts1)}<{MIN_MATCHES})")
+            return None
+
         if self.viz_res_path is not None:
             cv2.imwrite(f"{self.viz_res_path / self.cur_img_path.name}", match_img)
             self.timer.update("export res")
 
+        if self.realtime_viz:
+            cv2.setWindowTitle(self.win_name, self.win_name)
+            cv2.imshow(self.win_name, match_img)
+
         if self.verbose:
             self.timer.print(self.method)
 
-        return matches, match_img
+        self.compute_innovation(mkpts1, mkpts2)
+
+        return mkpts1, mkpts2
+
+    def compute_innovation(self, mkpts1, mkpts2):
+        dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
+        median_dist = np.median(dist)
+        if median_dist < INNOVATION_THRESH_PIX:
+            if self.verbose:
+                logging.info(
+                    f"Median matching distance {median_dist} < {INNOVATION_THRESH_PIX}: frame rejected."
+                )
+        else:
+            new_name = NextImg(self.last_img) + self.cur_img_path.suffix
+            shutil.copy(self.cur_img_path, self.keyframe_dir / new_name)
+            self.last_img += 1
 
 
 if __name__ == "__main__":
@@ -246,10 +242,6 @@ if __name__ == "__main__":
     verbose = False
     resize_to = [-1]
 
-    if realtime_viz:
-        win_name = "alike matching"
-        cv2.namedWindow(win_name)
-
     static_rej = StaticRejection(
         img_dir,
         keyframe_dir=keyframe_dir,
@@ -257,22 +249,70 @@ if __name__ == "__main__":
         resize_to=resize_to,
         verbose=verbose,
         viz_res_path="matches_plot",
+        # realtime_viz=False, # Realtime visualization not working
     )
 
     progress = tqdm(img_list)
     mkpts = {}
     for img in progress:
-        mkpts[img.name], match_img = static_rej.match_alike(img.name)
-        if realtime_viz:
-            cv2.setWindowTitle(win_name, "alike")
-            cv2.imshow(win_name, match_img)
-            if cv2.waitKey(1) == ord("q"):
-                break
+        mkpts[img.name] = static_rej.match_alike(img.name)
 
     print("Done")
 
 
 ##### ============= Old code ============ ######
+
+# elif self.method == "superglue":
+#     self.matcher_cfg = {
+#         "weights": "outdoor",
+#         "keypoint_threshold": 0.01,
+#         "max_keypoints": 128,
+#         "match_threshold": 0.2,
+#         "force_cpu": False,
+#     }
+#     self.matcher = SuperGlueMatcher(self.matcher_cfg)
+
+# elif method == "loftr":
+#     self.matcher_cfg = edict(
+#         {
+#             "device": "cuda",
+#         }
+#     )
+#     device = torch.device(self.matcher_cfg.device)
+#     self.matcher = KF.LoFTR(pretrained="outdoor").to(device).eval()
+
+# else:
+#     raise ValueError("Inalid input method")
+
+
+# def load_torch_image(
+#     fname: Union[str, Path],
+#     device=torch.device("cpu"),
+#     resize_to: Tuple[int] = [-1],
+#     as_grayscale: bool = True,
+#     as_float: bool = True,
+# ):
+#     fname = str(fname)
+#     timg = K.image_to_tensor(cv2.imread(fname), False)
+#     timg = K.color.bgr_to_rgb(timg.to(device))
+
+#     if as_float:
+#         timg = timg.float() / 255.0
+
+#     if as_grayscale:
+#         timg = K.color.rgb_to_grayscale(timg)
+
+#     h0, w0 = timg.shape[2:]
+
+#     if resize_to != [-1] and resize_to[0] > w0:
+#         timg = K.geometry.resize(timg, size=resize_to, antialias=True)
+#         h1, w1 = timg.shape[2:]
+#         resize_ratio = (float(w0) / float(w1), float(h0) / float(h1))
+#     else:
+#         resize_ratio = (1.0, 1.0)
+
+#     return timg, resize_ratio
+
 
 # def static_rejection(
 #     img_dir: Union[str, Path],
