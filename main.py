@@ -28,8 +28,15 @@ from pyquaternion import quaternion
 from scipy import linalg
 from scipy.spatial.transform import Rotation as R
 
-from lib import (EKF, ConvertGnssRefSystm, ExtractCustomFeatures,
-                 covariance_mat, database, export_cameras, static_rejection)
+from lib import (
+    EKF,
+    ConvertGnssRefSystm,
+    ExtractCustomFeatures,
+    covariance_mat,
+    database,
+    export_cameras,
+    static_rejection,
+)
 from lib.utils import Helmert, Id2name
 
 ### OPTIONS FOR EKF - Development temporarily interrupted, do not change values
@@ -189,7 +196,7 @@ for i in range(LOOP_CYCLES):
                     img_batch,
                     pointer,
                 ) = static_rejection.StaticRejection(
-                    STATIC_IMG_REJECTION_METHOD, # "root_sift", #
+                    STATIC_IMG_REJECTION_METHOD,
                     img1,
                     img2,
                     IMGS_FROM_SERVER,
