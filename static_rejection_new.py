@@ -41,12 +41,51 @@ MIN_POSE_ANGLE = 5  # deg
 
 
 class AlikeTracker(object):
-    def __init__(self, viz_res: bool = True):
+    """
+    A class for tracking similar points in consecutive frames.
+
+    Args:
+        viz_res (bool, optional): Whether to visualize the results. Defaults to True.
+
+    Attributes:
+        pts_prev (numpy.ndarray): Previous set of points.
+        desc_prev (numpy.ndarray): Previous set of descriptors.
+        viz_res (bool): Whether to visualize the results.
+
+    Methods:
+        track(img, pts, desc): Tracks similar points between consecutive frames.
+        mnn_mather(desc1, desc2): Computes the nearest neighbor matches between two sets of descriptors.
+        make_plot(img, mpts1, mpts2): Generates a visualization of the matched points.
+
+    """
+
+    def __init__(self, viz_res: bool = True) -> None:
+        """
+        Initializes the AlikeTracker object.
+
+        Args:
+            viz_res (bool, optional): Whether to visualize the results. Defaults to True.
+        """
         self.pts_prev = None
         self.desc_prev = None
         self.viz_res = viz_res
 
-    def track(self, img, pts, desc):
+    def track(
+        self, img: np.ndarray, pts: np.ndarray, desc: np.ndarray
+    ) -> Tuple[np.ndarray]:
+        """
+        Tracks similar points between consecutive frames.
+
+        Args:
+            img (numpy.ndarray): Current image.
+            pts (numpy.ndarray): Current set of points.
+            desc (numpy.ndarray): Current set of descriptors.
+
+        Returns:
+            Tuple[numpy.ndarray, numpy.ndarray, Union[None, numpy.ndarray]]: The matched points from the previous frame,
+            the matched points from the current frame, and the visualization of the matched points if self.viz_res is True.
+
+        """
         if self.pts_prev is None:
             self.pts_prev = pts
             self.desc_prev = desc
@@ -64,7 +103,18 @@ class AlikeTracker(object):
 
         return mpts1, mpts2, match_fig
 
-    def mnn_mather(self, desc1, desc2):
+    def mnn_mather(self, desc1: np.ndarray, desc2: np.ndarray) -> np.ndarray:
+        """
+        Computes the nearest neighbor matches between two sets of descriptors.
+
+        Args:
+            desc1 (numpy.ndarray): First set of descriptors.
+            desc2 (numpy.ndarray): Second set of descriptors.
+
+        Returns:
+            numpy.ndarray: An array of indices indicating the nearest neighbor matches between the two sets of descriptors.
+
+        """
         sim = desc1 @ desc2.transpose()
         sim[sim < 0.9] = 0
         nn12 = np.argmax(sim, axis=1)
@@ -74,7 +124,21 @@ class AlikeTracker(object):
         matches = np.stack([ids1[mask], nn12[mask]])
         return matches.transpose()
 
-    def make_plot(self, img, mpts1, mpts2):
+    def make_plot(
+        self, img: np.ndarray, mpts1: np.ndarray, mpts2: np.ndarray
+    ) -> np.ndarray:
+        """
+        Generates a visualization of the matched points.
+
+        Args:
+            img (numpy.ndarray): Current image.
+            mpts1 (numpy.ndarray): Matched points from the previous frame.
+            mpts2 (numpy.ndarray): Matched points from the current frame.
+
+        Returns:
+            numpy.ndarray: An image showing the matched points.
+
+        """
         match_fig = deepcopy(img)
         for pt1, pt2 in zip(mpts1, mpts2):
             p1 = (int(round(pt1[0])), int(round(pt1[1])))
@@ -112,9 +176,32 @@ def process_resize(w, h, resize):
     return w_new, h_new
 
 
-def estimate_pose(kpts0, kpts1, K0, K1, thresh, conf=0.9999):
+def estimate_pose(
+    kpts0: np.ndarray,
+    kpts1: np.ndarray,
+    K0: np.ndarray,
+    K1: np.ndarray,
+    thresh: float,
+    conf=0.9999,
+) -> Tuple[np.ndarray]:
     """
     Estimate camera pose given matched points and intrinsics matrix.
+
+    Args:
+        kpts0 (np.ndarray): A Nx2 array of keypoints in the first image.
+        kpts1 (np.ndarray): A Nx2 array of keypoints in the second image.
+        K0 (np.ndarray): A 3x3 intrinsics matrix of the first camera.
+        K1 (np.ndarray): A 3x3 intrinsics matrix of the second camera.
+        thresh (float): The inlier threshold for RANSAC.
+        conf (float, optional): The confidence level for RANSAC. Defaults to 0.9999.
+
+    Returns:
+        tuple: A tuple containing the rotation matrix, translation vector, and
+        boolean mask indicating inliers.
+
+        - R (np.ndarray): A 3x3 rotation matrix.
+        - t (np.ndarray): A 3x1 translation vector.
+        - inliers (np.ndarray): A boolean array indicating which keypoints are inliers.
     """
     if len(kpts0) < 5:
         return None
@@ -154,6 +241,9 @@ class StaticRejection:
         viz_res_path: Union[str, Path] = None,
         verbose: bool = False,
     ) -> None:
+        
+        
+        
         self.last_img = 0
         self.img_dir = Path(img_dir)
         assert self.img_dir.is_dir(), f"Invalid image directory {img_dir}"
@@ -199,7 +289,7 @@ class StaticRejection:
             )
             self.matcher = AlikeTracker()
 
-    def match_alike(self, cur_img_name: Union[str, Path]):
+    def match_alike(self, cur_img_name: Union[str, Path]) -> Tuple[np.ndarray]:
         self.timer = AverageTimer()
         if self.cur_img_path is None:
             self.cur_img_path = self.img_dir / cur_img_name
@@ -234,7 +324,7 @@ class StaticRejection:
             return None
         if len(mkpts1) < MIN_MATCHES:
             if self.verbose:
-                logging.info(f"Not enough matches found ({len(mkpts1)}<{MIN_MATCHES})")
+                logging.error(f"Not enough matches found ({len(mkpts1)}<{MIN_MATCHES})")
             return None
 
         if self.viz_res_path is not None:
@@ -250,9 +340,9 @@ class StaticRejection:
 
         self.compute_innovation(mkpts1, mkpts2)
 
-        return mkpts1, mkpts2
+        return (mkpts1, mkpts2)
 
-    def compute_innovation(self, mkpts1, mkpts2):
+    def compute_innovation(self, mkpts1: np.ndarray, mkpts2: np.ndarray) -> None:
         dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
         median_dist = np.median(dist)
         if median_dist < INNOVATION_THRESH_PIX:
@@ -276,7 +366,7 @@ class StaticRejection:
                 if max_angle_deg < MIN_POSE_ANGLE:
                     if self.verbose:
                         logging.info(
-                            f"Larger pose angle {max_angle_deg} < {INNOVATION_THRESH_PIX}: frame rejected."
+                            f"Larger pose angle {max_angle_deg} < {MIN_POSE_ANGLE}: frame rejected."
                         )
                     return None
             new_name = NextImg(self.last_img) + self.cur_img_path.suffix
