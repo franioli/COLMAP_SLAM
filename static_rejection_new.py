@@ -11,15 +11,61 @@ from PIL import Image, ImageOps
 import kornia as K
 import kornia.feature as KF
 import torch
+from copy import deepcopy
+from easydict import EasyDict as edict
 
 from icepy.matching.superglue_matcher import SuperGlueMatcher
 
 # from icepy.sfm.two_view_geometry import RelativeOrientation
 
 from lib.utils import timeit, AverageTimer
+from lib.thirdparty.alike.alike import ALike, configs
 
 
 INNOVATION_THRESH = 0.001  # 1.5
+
+
+class AlikeTracker(object):
+    def __init__(self):
+        self.pts_prev = None
+        self.desc_prev = None
+
+    def update(self, img, pts, desc):
+        N_matches = 0
+        if self.pts_prev is None:
+            self.pts_prev = pts
+            self.desc_prev = desc
+
+            out = deepcopy(img)
+            for pt1 in pts:
+                p1 = (int(round(pt1[0])), int(round(pt1[1])))
+                cv2.circle(out, p1, 1, (0, 0, 255), -1, lineType=16)
+        else:
+            self.matches = self.mnn_mather(self.desc_prev, desc)
+            mpts1, mpts2 = self.pts_prev[self.matches[:, 0]], pts[self.matches[:, 1]]
+            N_matches = len(self.matches)
+
+            out = deepcopy(img)
+            for pt1, pt2 in zip(mpts1, mpts2):
+                p1 = (int(round(pt1[0])), int(round(pt1[1])))
+                p2 = (int(round(pt2[0])), int(round(pt2[1])))
+                cv2.line(out, p1, p2, (0, 255, 0), lineType=16)
+                cv2.circle(out, p2, 1, (0, 0, 255), -1, lineType=16)
+
+            self.pts_prev = pts
+            self.desc_prev = desc
+
+        return out, N_matches
+
+    def mnn_mather(self, desc1, desc2):
+        sim = desc1 @ desc2.transpose()
+        sim[sim < 0.9] = 0
+        nn12 = np.argmax(sim, axis=1)
+        nn21 = np.argmax(sim, axis=0)
+        ids1 = np.arange(0, sim.shape[0])
+        mask = ids1 == nn21[nn12]
+        matches = np.stack([ids1[mask], nn12[mask]])
+        return matches.transpose()
 
 
 def process_resize(w, h, resize):
@@ -142,7 +188,37 @@ def StaticRejection(
         with torch.inference_mode():
             input_dict = {"image0": timg0, "image1": timg1}
             correspondences = matcher(input_dict)
-    # print("Done.")
+    if method == "alike":
+        args = edict(
+            {
+                "model": "alike-t",
+                "device": "cuda",
+                "top_k": -1,
+                "scores_th": 0.2,
+                "n_limit": 5000,
+                "subpixel": False,
+            }
+        )
+
+        model = ALike(
+            **configs[args.model],
+            device=args.device,
+            top_k=args.top_k,
+            scores_th=args.scores_th,
+            n_limit=args.n_limit,
+        )
+        tracker = AlikeTracker()
+        im1 = cv2.cvtColor(cv2.imread(str(cur_img)), cv2.COLOR_BGR2RGB)
+        im2 = cv2.cvtColor(cv2.imread(str(prev_img)), cv2.COLOR_BGR2RGB)
+
+        pred = model(im1, sub_pixel=args.subpixel)
+        _, _ = tracker.update(im1, pred["keypoints"], pred["descriptors"])
+
+        pred = model(im2, sub_pixel=args.subpixel)
+        out, N_matches = tracker.update(im2, pred["keypoints"], pred["descriptors"])
+
+        return tracker.matches
+        # print("Done.")
 
 
 if __name__ == "__main__":
@@ -152,12 +228,12 @@ if __name__ == "__main__":
     prev_img_name = "1403636580763555584.jpg"
     resize_to = [480]
 
-    StaticRejection(
+    mkpts = StaticRejection(
         img_dir,
         cur_img_name,
         prev_img_name,
         keyframe_dir=keyframe_dir,
-        method="superglue",
+        method="alike",
         resize_to=resize_to,
     )
 
