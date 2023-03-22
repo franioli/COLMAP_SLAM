@@ -21,6 +21,7 @@ from easydict import EasyDict as edict
 from tqdm import tqdm
 
 from lib.thirdparty.alike.alike import ALike, configs
+from lib.thirdparty.transformations import euler_from_matrix
 from lib.utils import AverageTimer, timeit
 
 # from icepy.matching.superglue_matcher import SuperGlueMatcher
@@ -36,6 +37,7 @@ logging.basicConfig(
 INNOVATION_THRESH = 0.001  # 1.5
 INNOVATION_THRESH_PIX = 10
 MIN_MATCHES = 50
+MIN_POSE_ANGLE = 5  # deg
 
 
 class AlikeTracker(object):
@@ -110,6 +112,35 @@ def process_resize(w, h, resize):
     return w_new, h_new
 
 
+def estimate_pose(kpts0, kpts1, K0, K1, thresh, conf=0.9999):
+    """
+    Estimate camera pose given matched points and intrinsics matrix.
+    """
+    if len(kpts0) < 5:
+        return None
+
+    f_mean = np.mean([K0[0, 0], K1[1, 1], K0[0, 0], K1[1, 1]])
+    norm_thresh = thresh / f_mean
+
+    kpts0 = (kpts0 - K0[[0, 1], [2, 2]][None]) / K0[[0, 1], [0, 1]][None]
+    kpts1 = (kpts1 - K1[[0, 1], [2, 2]][None]) / K1[[0, 1], [0, 1]][None]
+
+    E, mask = cv2.findEssentialMat(
+        kpts0, kpts1, np.eye(3), threshold=norm_thresh, prob=conf, method=cv2.RANSAC
+    )
+
+    assert E is not None, "Unable to estimate Essential matrix"
+
+    best_num_inliers = 0
+    ret = None
+    for _E in np.split(E, len(E) / 3):
+        n, R, t, _ = cv2.recoverPose(_E, kpts0, kpts1, np.eye(3), 1e9, mask=mask)
+        if n > best_num_inliers:
+            best_num_inliers = n
+            ret = (R, t[:, 0], mask.ravel() > 0)
+    return ret
+
+
 class StaticRejection:
     def __init__(
         self,
@@ -117,6 +148,7 @@ class StaticRejection:
         keyframe_dir: Union[str, Path],
         method: str = "alike",
         matcher_cfg: dict = None,
+        camera_matrix: np.ndarray = None,
         resize_to: List[int] = [-1],
         realtime_viz: bool = False,
         viz_res_path: Union[str, Path] = None,
@@ -141,6 +173,8 @@ class StaticRejection:
 
         self.cur_img_path = None
         self.prev_img_path = None
+
+        self.K = camera_matrix
 
         # Initialize matching and tracking instances
         if method == "alike":
@@ -226,7 +260,25 @@ class StaticRejection:
                 logging.info(
                     f"Median matching distance {median_dist} < {INNOVATION_THRESH_PIX}: frame rejected."
                 )
+                return None
         else:
+            if self.K is not None:
+                threshold = 2
+                R, t, valid = estimate_pose(
+                    mkpts1,
+                    mkpts2,
+                    self.K,
+                    self.K,
+                    thresh=threshold,
+                )
+                angles = np.array(euler_from_matrix(R))
+                max_angle_deg = np.max(np.rad2deg(angles))
+                if max_angle_deg < MIN_POSE_ANGLE:
+                    if self.verbose:
+                        logging.info(
+                            f"Larger pose angle {max_angle_deg} < {INNOVATION_THRESH_PIX}: frame rejected."
+                        )
+                    return None
             new_name = NextImg(self.last_img) + self.cur_img_path.suffix
             shutil.copy(self.cur_img_path, self.keyframe_dir / new_name)
             self.last_img += 1
@@ -242,6 +294,16 @@ if __name__ == "__main__":
     verbose = False
     resize_to = [-1]
 
+    intrinsics = [458.654, 457.296, 367.215, 248.375]
+
+    Kmat = np.array(
+        [
+            [intrinsics[0], 0.0, intrinsics[2]],
+            [0.0, intrinsics[1], intrinsics[3]],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+
     static_rej = StaticRejection(
         img_dir,
         keyframe_dir=keyframe_dir,
@@ -249,6 +311,7 @@ if __name__ == "__main__":
         resize_to=resize_to,
         verbose=verbose,
         viz_res_path="matches_plot",
+        camera_matrix=Kmat,
         # realtime_viz=False, # Realtime visualization not working
     )
 
