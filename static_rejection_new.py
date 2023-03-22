@@ -109,8 +109,80 @@ def load_torch_image(
     return timg, resize_ratio
 
 
-@timeit
-def StaticRejection(
+class StaticRejection:
+    def __init__(
+        self,
+        img_dir: Union[str, Path],
+        cur_img_name: Union[str, Path],
+        prev_img_name: Union[str, Path],
+        keyframe_dir: Union[str, Path],
+        method: str = "alike",
+        matcher_cfg: dict = None,
+        resize_to: List[int] = [-1],
+        verbose: bool = False,
+    ) -> None:
+        self.img_dir = Path(img_dir)
+        self.cur_img = self.img_dir / cur_img_name
+        self.prev_img = self.img_dir / prev_img_name
+        assert self.img_dir.is_dir(), f"Invalid image directory {img_dir}"
+        # Check if the two images exists, otherwise skip.
+        try:
+            assert (
+                self.cur_img.exists()
+            ), f"Current image {cur_img_name} does not exist in image folder"
+            assert (
+                self.prev_img.exists()
+            ), f"Previous image {prev_img_name} does not exist in image folder"
+        except AssertionError as err:
+            print("!! Frame truncated !!")
+            return None
+
+        self.timer = AverageTimer()
+        self.method = method
+        self.resize_to = resize_to
+        self.verbose = verbose
+        self.matcher_cfg = matcher_cfg
+
+        # Initialize matching and tracking instances
+        if self.method == "superglue":
+            # TODO: use a generic configration dictionary as input for Static rejection class anc check dictionary keys for each method.
+
+            suerglue_cfg = {
+                "weights": "outdoor",
+                "keypoint_threshold": 0.01,
+                "max_keypoints": 128,
+                "match_threshold": 0.2,
+                "force_cpu": False,
+            }
+            self.matcher = SuperGlueMatcher(suerglue_cfg)
+
+        elif method == "loftr":
+            device = torch.device("cuda")
+            self.matcher = KF.LoFTR(pretrained="outdoor").to(device).eval()
+
+        elif method == "alike":
+            args = edict(
+                {
+                    "model": "alike-t",
+                    "device": "cuda",
+                    "top_k": -1,
+                    "scores_th": 0.2,
+                    "n_limit": 5000,
+                    "subpixel": False,
+                }
+            )
+
+            self.model = ALike(
+                **configs[args.model],
+                device=args.device,
+                top_k=args.top_k,
+                scores_th=args.scores_th,
+                n_limit=args.n_limit,
+            )
+            self.matcher = AlikeTracker()
+
+
+def atatic_rejection(
     img_dir: Union[str, Path],
     cur_img_name: Union[str, Path],
     prev_img_name: Union[str, Path],
@@ -228,7 +300,7 @@ if __name__ == "__main__":
     prev_img_name = "1403636580763555584.jpg"
     resize_to = [480]
 
-    mkpts = StaticRejection(
+    static_rej = StaticRejection(
         img_dir,
         cur_img_name,
         prev_img_name,
