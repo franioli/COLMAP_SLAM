@@ -189,7 +189,7 @@ for i in range(LOOP_CYCLES):
                     img_batch,
                     pointer,
                 ) = static_rejection.StaticRejection(
-                    STATIC_IMG_REJECTION_METHOD,
+                    STATIC_IMG_REJECTION_METHOD, # "root_sift", #
                     img1,
                     img2,
                     IMGS_FROM_SERVER,
