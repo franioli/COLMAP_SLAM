@@ -241,9 +241,20 @@ class StaticRejection:
         viz_res_path: Union[str, Path] = None,
         verbose: bool = False,
     ) -> None:
-        
-        
-        
+        """
+        Initializes the StaticRejection class.
+
+        Args:
+            img_dir (Union[str, Path]): Directory where images are saved.
+            keyframe_dir (Union[str, Path]): Directory to save keyframes.
+            method (str, optional): Image matching method. Defaults to "alike".
+            matcher_cfg (dict, optional): Image matcher configuration. Defaults to None.
+            camera_matrix (np.ndarray, optional): Camera matrix for pose estimation. Defaults to None.
+            resize_to (List[int], optional): Resized image dimensions. Defaults to [-1].
+            realtime_viz (bool, optional): Real-time visualization flag. Defaults to False.
+            viz_res_path (Union[str, Path], optional): Directory to save visualization results. Defaults to None.
+            verbose (bool, optional): Verbose flag. Defaults to False.
+        """
         self.last_img = 0
         self.img_dir = Path(img_dir)
         assert self.img_dir.is_dir(), f"Invalid image directory {img_dir}"
@@ -299,6 +310,7 @@ class StaticRejection:
                 ), f"Current image {cur_img_name} does not exist in image folder"
             except AssertionError as err:
                 logging.error(err)
+                return None
         else:
             self.prev_img_path = self.cur_img_path
             self.cur_img_path = self.img_dir / cur_img_name
