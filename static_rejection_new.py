@@ -276,29 +276,40 @@ class StaticRejection:
                 n_limit=self.matcher_cfg.n_limit,
             )
 
-        elif self.method == "superglue":
-            self.matcher_cfg = {
-                "weights": "outdoor",
-                "keypoint_threshold": 0.001,
-                "max_keypoints": 1024,
-                "match_threshold": 0.3,
-                "force_cpu": False,
-            }
-            self.matcher = SuperGlueMatcher(self.matcher_cfg)
+        # elif self.method == "superglue":
+        #     self.matcher_cfg = {
+        #         "weights": "outdoor",
+        #         "keypoint_threshold": 0.001,
+        #         "max_keypoints": 1024,
+        #         "match_threshold": 0.3,
+        #         "force_cpu": False,
+        #     }
+        #     self.matcher = SuperGlueMatcher(self.matcher_cfg)
 
-        elif self.method == "loftr":
-            self.matcher_cfg = edict(
-                {
-                    "device": "cuda",
-                }
-            )
-            device = torch.device(self.matcher_cfg.device)
-            self.matcher = KF.LoFTR(pretrained="outdoor").to(device).eval()
+        # elif self.method == "loftr":
+        #     self.matcher_cfg = edict(
+        #         {
+        #             "device": "cuda",
+        #         }
+        #     )
+        #     device = torch.device(self.matcher_cfg.device)
+        #     self.matcher = KF.LoFTR(pretrained="outdoor").to(device).eval()
 
-        else:
-            raise ValueError("Inalid input method")
+        # else:
+        #     raise ValueError("Inalid input method")
 
     def match_alike(self, cur_frame: Union[str, Path]) -> Tuple[np.ndarray]:
+        """Match current frame with previous frame using the AlikeMatcher algorithm.
+
+        Args:
+            cur_frame (Union[str, Path]): The path of the current frame.
+
+        Returns:
+            Tuple[np.ndarray]: A tuple of three numpy arrays, representing the keypoints in the previous frame, the corresponding keypoints in the current frame, the matching plot as opencv image (numpy array).
+
+        Notes:
+            The method matches the keypoints in the current frame with the keypoints in the previous frame, using the AlikeMatcher algorithm. The algorithm extracts the keypoints from the images and computes the descriptors of each keypoint. It then matches the keypoints in the two images based on their descriptors.
+        """
         self.timer = AverageTimer()
 
         # If last_keyframe_path is None, initialize the series.
@@ -417,6 +428,19 @@ class StaticRejection:
     #     return (mkpts1, mkpts2)
 
     def compute_innovation(self, mkpts1: np.ndarray, mkpts2: np.ndarray) -> bool:
+        """
+        Computes innovation between the last keyframe and current frame. If the current frame is a keyframe, updates last_keyframe attribute in the class.
+
+        Args:
+        mkpts1 (np.ndarray): Matching keypoints from the last keyframe frame.
+        mkpts2 (np.ndarray): Matching keypoints from the current frame.
+
+        Returns:
+        bool: True if the current frame is a keyframe, False otherwise.
+
+        NOTE:
+            Computes the median matching distance between the previous and current frames' keypoints. If the median matching distance is less than the innovation threshold, the current frame is rejected and False is returned. Otherwise, the relative orientation between the previous and current frames is computed using estimate_pose() function. If the relative orientation cannot be computed, the current frame is rejected and False is returned. If the number of inlier matches is less than the minimum required matches, the current frame is rejected and False is returned. If the largest absolute value of any of the three Euler angles of the relative orientation is less than the minimum pose angle, the current frame is rejected and False is returned. If the current frame is a keyframe, its features are stored as the last key features and a copy of the current frame is saved in the keyframe directory with a new name. The last keyframe path is updated with the current frame path, and True is returned.
+        """
         match_dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
         median_match_dist = np.median(match_dist)
         if median_match_dist < INNOVATION_THRESH_PIX:
@@ -467,12 +491,26 @@ class StaticRejection:
             return True
 
     def check_new_frame(self, cur_frame: Union[str, Path]) -> Tuple[np.ndarray]:
+        """
+        Checks a new frame for keyframe selection using the specified method.
+
+        Args:
+        cur_frame (Union[str, Path]): The path to the current frame.
+
+        Returns:
+        Tuple[np.ndarray]: A tuple containing the matched keypoints in the current and last keyframes. At the first epoch, None is returned.
+
+        TODO: handling situation in which no matches are found, or innovation is too large or other critical situations.
+        """
+
         if self.method == "alike":
             ret = self.match_alike(cur_frame)
             if ret is not None:
                 mkpts1, mkpts2, match_img = ret
             else:
                 return None
+        else:
+            raise RuntimeError("Other methods than 'alike' are not implemented yet.")
 
         if self.verbose:
             self.timer.print(self.method)
@@ -488,6 +526,8 @@ class StaticRejection:
             cv2.imshow(self.method, match_img)
             if cv2.waitKey(1) == ord("q"):
                 sys.exit()
+
+        return (mkpts1, mkpts2)
 
 
 if __name__ == "__main__":
