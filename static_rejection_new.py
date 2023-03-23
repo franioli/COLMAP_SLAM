@@ -1,6 +1,7 @@
 import logging
 import shutil
 from copy import deepcopy
+import sys
 
 # import subprocess
 from pathlib import Path
@@ -221,6 +222,9 @@ class StaticRejection:
         self.resize_to = resize_to
 
         self.realtime_viz = realtime_viz
+        if self.realtime_viz:
+            cv2.namedWindow(self.method)
+
         if viz_res_path is not None:
             self.viz_res_path = Path(viz_res_path)
             self.viz_res_path.mkdir(exist_ok=True)
@@ -341,14 +345,20 @@ class StaticRejection:
             cv2.imwrite(f"{self.viz_res_path / self.cur_frame_path.name}", match_img)
             self.timer.update("export res")
 
-        if self.realtime_viz:
-            cv2.setWindowTitle(self.win_name, self.win_name)
-            cv2.imshow(self.win_name, match_img)
-
         if self.verbose:
             self.timer.print(self.method)
 
-        self.compute_innovation(mkpts1, mkpts2)
+        keep_current_frame = self.compute_innovation(mkpts1, mkpts2)
+
+        if realtime_viz:
+            if keep_current_frame:
+                win_name = self.method + ": Keyframe accepted"
+            else:
+                win_name = self.method + ": Frame rejected"
+            cv2.setWindowTitle(self.method, win_name)
+            cv2.imshow(self.method, match_img)
+            if cv2.waitKey(1) == ord("q"):
+                sys.exit()
 
         return (mkpts1, mkpts2)
 
@@ -396,7 +406,7 @@ class StaticRejection:
 
         return (mkpts1, mkpts2)
 
-    def compute_innovation(self, mkpts1: np.ndarray, mkpts2: np.ndarray) -> None:
+    def compute_innovation(self, mkpts1: np.ndarray, mkpts2: np.ndarray) -> bool:
         match_dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
         median_match_dist = np.median(match_dist)
         if median_match_dist < INNOVATION_THRESH_PIX:
@@ -404,7 +414,7 @@ class StaticRejection:
                 logging.info(
                     f"Frame {self.cur_frame_path.name} rejected: median matching distance {median_match_dist:.2f} < {INNOVATION_THRESH_PIX}."
                 )
-                return None
+                return False
         else:
             if self.K is not None:
                 ret = estimate_pose(
@@ -420,12 +430,12 @@ class StaticRejection:
                     logging.warning(
                         f"Unable to compute relative orientation for image {self.cur_frame_path.name}."
                     )
-                    return None
+                    return False
                 if (n_matches := len(list(filter(bool, valid)))) < MIN_MATCHES:
                     logging.warning(
                         f"Frame {self.cur_frame_path.name} rejected: not enough inlier matches found ({n_matches}<{MIN_MATCHES})."
                     )
-                    return None
+                    return False
                 angles_deg = np.rad2deg(np.array(euler_from_matrix(R)))
                 max_angle_deg = np.max(np.abs(angles_deg))
                 if max_angle_deg < MIN_POSE_ANGLE_DEG:
@@ -433,7 +443,7 @@ class StaticRejection:
                         logging.info(
                             f"Frame {self.cur_frame_path.name} rejected: pose angle {max_angle_deg:.2f} < {MIN_POSE_ANGLE_DEG} (median matching distance {median_match_dist:.2f})."
                         )
-                    return None
+                    return False
             logging.info(
                 f"Keyframe selected: Median matching distance {median_match_dist:.2f} - Larger pose angle {max_angle_deg:.2f}."
             )
@@ -444,6 +454,7 @@ class StaticRejection:
             new_name = f"{NextImg(self.last_img)}_{self.cur_frame_path.stem}_{self.cur_frame_path.suffix}"
             shutil.copy(self.cur_frame_path, self.keyframe_dir / new_name)
             self.last_img += 1
+            return True
 
 
 if __name__ == "__main__":
@@ -452,6 +463,10 @@ if __name__ == "__main__":
     keyframe_dir = "keyframes"
     matching_plot_dir = "matches_plot"
     method = "alike"
+    realtime_viz = True
+    verbose = True
+    resize_to = [-1]
+    intrinsics = [458.654, 457.296, 367.215, 248.375]
 
     # Clean output directories
     if (keyframe_dir := Path(keyframe_dir)).exists():
@@ -461,12 +476,6 @@ if __name__ == "__main__":
 
     img_dir = Path(img_dir)
     img_list = sorted(img_dir.glob(f"*.{img_ext}"))
-    realtime_viz = False
-    verbose = True
-    resize_to = [-1]
-
-    intrinsics = [458.654, 457.296, 367.215, 248.375]
-
     Kmat = np.array(
         [
             [intrinsics[0], 0.0, intrinsics[2]],
@@ -483,7 +492,7 @@ if __name__ == "__main__":
         verbose=verbose,
         viz_res_path=matching_plot_dir,
         camera_matrix=Kmat,
-        # realtime_viz=False, # Realtime visualization not working
+        realtime_viz=realtime_viz,  # Realtime visualization not working
     )
 
     progress = tqdm(img_list)
