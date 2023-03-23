@@ -27,9 +27,9 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-INNOVATION_THRESH = 0.001  # 1.5
+# INNOVATION_THRESH = 0.001  # 1.5
 INNOVATION_THRESH_PIX = 15
-MIN_MATCHES = 50
+MIN_MATCHES = 20
 MIN_POSE_ANGLE_DEG = 2
 
 
@@ -363,10 +363,10 @@ class StaticRejection:
 
         if any([mkpts1 is None, mkpts2 is None]):
             return None
-        if len(mkpts1) < MIN_MATCHES:
-            if self.verbose:
-                logging.error(f"Not enough matches found ({len(mkpts1)}<{MIN_MATCHES})")
-            return None
+        # if len(mkpts1) < MIN_MATCHES:
+        #     if self.verbose:
+        #         logging.error(f"Not enough matches found ({len(mkpts1)}<{MIN_MATCHES})")
+        #     return None
 
         if self.viz_res_path is not None:
             cv2.imwrite(f"{self.viz_res_path / self.cur_frame_path.name}", match_img)
@@ -534,7 +534,7 @@ class StaticRejection:
 
 
 if __name__ == "__main__":
-    img_dir = "data/MH_01_easy/mav0/cam0/data"
+    img_dir = "data/MH_03_medium/mav0/cam0/data"  # "data/MH_01_easy/mav0/cam0/data"
     img_ext = "png"
     keyframe_dir = "keyframes"
     matching_plot_dir = "matches_plot"
