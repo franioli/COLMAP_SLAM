@@ -440,6 +440,9 @@ class StaticRejection:
 
         NOTE:
             Computes the median matching distance between the previous and current frames' keypoints. If the median matching distance is less than the innovation threshold, the current frame is rejected and False is returned. Otherwise, the relative orientation between the previous and current frames is computed using estimate_pose() function. If the relative orientation cannot be computed, the current frame is rejected and False is returned. If the number of inlier matches is less than the minimum required matches, the current frame is rejected and False is returned. If the largest absolute value of any of the three Euler angles of the relative orientation is less than the minimum pose angle, the current frame is rejected and False is returned. If the current frame is a keyframe, its features are stored as the last key features and a copy of the current frame is saved in the keyframe directory with a new name. The last keyframe path is updated with the current frame path, and True is returned.
+
+        TODO:
+            consider situation of translation only or when there is only rotation and no translation (not enough innovation), or consider innovation as the amount of new features tracked and their location in the image.
         """
         match_dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
         median_match_dist = np.median(match_dist)
