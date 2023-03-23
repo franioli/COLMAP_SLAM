@@ -1,32 +1,23 @@
 import logging
-from copy import deepcopy
-
-# import os
 import shutil
+from copy import deepcopy
 
 # import subprocess
 from pathlib import Path
-
-# from time import time
 from typing import List, Tuple, Union
 
 import cv2
-
-# from PIL import Image, ImageOps
 import kornia as K
 import kornia.feature as KF
 import numpy as np
 import torch
 from easydict import EasyDict as edict
+from icepy.matching.superglue_matcher import SuperGlueMatcher
 from tqdm import tqdm
 
 from lib.thirdparty.alike.alike import ALike, configs
 from lib.thirdparty.transformations import euler_from_matrix
 from lib.utils import AverageTimer, timeit
-
-# from icepy.matching.superglue_matcher import SuperGlueMatcher
-# from icepy.sfm.two_view_geometry import RelativeOrientation
-
 
 logger = logging.getLogger("Static Rejection")
 logging.basicConfig(
@@ -35,75 +26,36 @@ logging.basicConfig(
 )
 
 INNOVATION_THRESH = 0.001  # 1.5
-INNOVATION_THRESH_PIX = 10
+INNOVATION_THRESH_PIX = 15
 MIN_MATCHES = 50
-MIN_POSE_ANGLE = 5  # deg
+MIN_POSE_ANGLE_DEG = 2
 
 
-class AlikeTracker(object):
-    """
-    A class for tracking similar points in consecutive frames.
+class AlikeMatcher:
+    def __init__(
+        self,
+        pts_prev: np.ndarray,
+        desc_prev: np.ndarray,
+        pts_cur: np.ndarray,
+        desc_cur: np.ndarray,
+        img_for_plot: np.ndarray = None,
+    ) -> None:
+        self.pts_prev = pts_prev
+        self.desc_prev = desc_prev
+        self.pts_cur = pts_cur
+        self.desc_cur = desc_cur
+        self.img = img_for_plot
 
-    Args:
-        viz_res (bool, optional): Whether to visualize the results. Defaults to True.
-
-    Attributes:
-        pts_prev (numpy.ndarray): Previous set of points.
-        desc_prev (numpy.ndarray): Previous set of descriptors.
-        viz_res (bool): Whether to visualize the results.
-
-    Methods:
-        track(img, pts, desc): Tracks similar points between consecutive frames.
-        mnn_mather(desc1, desc2): Computes the nearest neighbor matches between two sets of descriptors.
-        make_plot(img, mpts1, mpts2): Generates a visualization of the matched points.
-
-    """
-
-    def __init__(self, viz_res: bool = True) -> None:
-        """
-        Initializes the AlikeTracker object.
-
-        Args:
-            viz_res (bool, optional): Whether to visualize the results. Defaults to True.
-        """
-        self.pts_prev = None
-        self.desc_prev = None
-        self.viz_res = viz_res
-
-    def track(
-        self, img: np.ndarray, pts: np.ndarray, desc: np.ndarray
-    ) -> Tuple[np.ndarray]:
-        """
-        Tracks similar points between consecutive frames.
-
-        Args:
-            img (numpy.ndarray): Current image.
-            pts (numpy.ndarray): Current set of points.
-            desc (numpy.ndarray): Current set of descriptors.
-
-        Returns:
-            Tuple[numpy.ndarray, numpy.ndarray, Union[None, numpy.ndarray]]: The matched points from the previous frame,
-            the matched points from the current frame, and the visualization of the matched points if self.viz_res is True.
-
-        """
-        if self.pts_prev is None:
-            self.pts_prev = pts
-            self.desc_prev = desc
-            mpts1, mpts2 = None, None
-            match_fig = deepcopy(img)
+    def match(self) -> Tuple[np.ndarray]:
+        matches = self.mnn_matcher(self.desc_prev, self.desc_cur)
+        mpts1, mpts2 = self.pts_prev[matches[:, 0]], self.pts_cur[matches[:, 1]]
+        if self.img is not None:
+            match_fig = self.make_plot(self.img, mpts1, mpts2)
         else:
-            matches = self.mnn_mather(self.desc_prev, desc)
-            mpts1, mpts2 = self.pts_prev[matches[:, 0]], pts[matches[:, 1]]
-            if self.viz_res:
-                match_fig = self.make_plot(img, mpts1, mpts2)
-            else:
-                match_fig = None
-            self.pts_prev = pts
-            self.desc_prev = desc
-
+            match_fig = None
         return mpts1, mpts2, match_fig
 
-    def mnn_mather(self, desc1: np.ndarray, desc2: np.ndarray) -> np.ndarray:
+    def mnn_matcher(self, desc1: np.ndarray, desc2: np.ndarray) -> np.ndarray:
         """
         Computes the nearest neighbor matches between two sets of descriptors.
 
@@ -263,7 +215,11 @@ class StaticRejection:
         self.keyframe_dir.mkdir(exist_ok=True, parents=True)
         self.method = method
         self.matcher_cfg = edict(matcher_cfg)
+        assert isinstance(
+            resize_to, list
+        ), "Invid input for resize_to parameter. It must be a list of integers with the new image dimensions"
         self.resize_to = resize_to
+
         self.realtime_viz = realtime_viz
         if viz_res_path is not None:
             self.viz_res_path = Path(viz_res_path)
@@ -272,8 +228,8 @@ class StaticRejection:
             self.viz_res_path = None
         self.verbose = verbose
 
-        self.cur_img_path = None
-        self.prev_img_path = None
+        self.last_keyframe_path = None
+        self.cur_frame_path = None
 
         self.K = camera_matrix
 
@@ -298,28 +254,62 @@ class StaticRejection:
                 scores_th=self.matcher_cfg.scores_th,
                 n_limit=self.matcher_cfg.n_limit,
             )
-            self.matcher = AlikeTracker()
+            # self.matcher = AlikeTracker()
 
-    def match_alike(self, cur_img_name: Union[str, Path]) -> Tuple[np.ndarray]:
+        elif self.method == "superglue":
+            self.matcher_cfg = {
+                "weights": "outdoor",
+                "keypoint_threshold": 0.001,
+                "max_keypoints": 1024,
+                "match_threshold": 0.3,
+                "force_cpu": False,
+            }
+            self.matcher = SuperGlueMatcher(self.matcher_cfg)
+
+        elif self.method == "loftr":
+            self.matcher_cfg = edict(
+                {
+                    "device": "cuda",
+                }
+            )
+            device = torch.device(self.matcher_cfg.device)
+            self.matcher = KF.LoFTR(pretrained="outdoor").to(device).eval()
+
+        else:
+            raise ValueError("Inalid input method")
+
+    def match_alike(self, cur_frame: Union[str, Path]) -> Tuple[np.ndarray]:
         self.timer = AverageTimer()
-        if self.cur_img_path is None:
-            self.cur_img_path = self.img_dir / cur_img_name
+
+        # If last_keyframe_path is None, initialize the series.
+        if self.last_keyframe_path is None:
+            self.cur_frame_path = self.img_dir / cur_frame
             try:
                 assert (
-                    self.cur_img_path.exists()
-                ), f"Current image {cur_img_name} does not exist in image folder"
+                    self.cur_frame_path.exists()
+                ), f"Current image {cur_frame} does not exist in image folder"
             except AssertionError as err:
                 logging.error(err)
                 return None
-        else:
-            self.prev_img_path = self.cur_img_path
-            self.cur_img_path = self.img_dir / cur_img_name
 
-        img = cv2.cvtColor(cv2.imread(str(self.cur_img_path)), cv2.COLOR_BGR2RGB)
+            self.last_keyframe_path = self.img_dir / cur_frame
+            img = cv2.cvtColor(cv2.imread(str(self.cur_frame_path)), cv2.COLOR_BGR2RGB)
+            if self.resize_to != [-1]:
+                w_new, h_new = process_resize(
+                    img.shape[1], img.shape[0], resize=resize_to
+                )
+                if any([img.shape[1] > w_new, img.shape[0] > h_new]):
+                    img = cv2.resize(img, (w_new, h_new))
+                    if self.verbose:
+                        logging.info(f"Images resized to ({w_new},{h_new})")
+            self.last_key_features = self.model(
+                img, sub_pixel=self.matcher_cfg.subpixel
+            )
+            return None
+
+        self.cur_frame_path = self.img_dir / cur_frame
+        img = cv2.cvtColor(cv2.imread(str(self.cur_frame_path)), cv2.COLOR_BGR2RGB)
         if self.resize_to != [-1]:
-            assert isinstance(
-                resize_to, list
-            ), "Invid input for resize_to parameter. It must be a list of integers with the new image dimensions"
             w_new, h_new = process_resize(img.shape[1], img.shape[0], resize=resize_to)
             if any([img.shape[1] > w_new, img.shape[0] > h_new]):
                 img = cv2.resize(img, (w_new, h_new))
@@ -327,11 +317,19 @@ class StaticRejection:
                     logging.info(f"Images resized to ({w_new},{h_new})")
         self.timer.update("read img")
 
-        pred = self.model(img, sub_pixel=self.matcher_cfg.subpixel)
+        self.cur_features = self.model(img, sub_pixel=self.matcher_cfg.subpixel)
         self.timer.update("kpts extraction")
-        mkpts1, mkpts2, match_img = self.matcher.track(
-            img, pred["keypoints"], pred["descriptors"]
+
+        self.matcher = AlikeMatcher(
+            self.last_key_features["keypoints"],
+            self.last_key_features["descriptors"],
+            self.cur_features["keypoints"],
+            self.cur_features["descriptors"],
+            img,
         )
+        mkpts1, mkpts2, match_img = self.matcher.match()
+        self.timer.update("matching")
+
         if any([mkpts1 is None, mkpts2 is None]):
             return None
         if len(mkpts1) < MIN_MATCHES:
@@ -340,7 +338,7 @@ class StaticRejection:
             return None
 
         if self.viz_res_path is not None:
-            cv2.imwrite(f"{self.viz_res_path / self.cur_img_path.name}", match_img)
+            cv2.imwrite(f"{self.viz_res_path / self.cur_frame_path.name}", match_img)
             self.timer.update("export res")
 
         if self.realtime_viz:
@@ -354,46 +352,117 @@ class StaticRejection:
 
         return (mkpts1, mkpts2)
 
+        # def match_superglue(self, cur_img_name):
+        self.timer = AverageTimer()
+        if self.cur_frame_path is None:
+            self.cur_frame_path = self.img_dir / cur_img_name
+            try:
+                assert (
+                    self.cur_frame_path.exists()
+                ), f"Current image {cur_img_name} does not exist in image folder"
+            except AssertionError as err:
+                logging.error(err)
+            return None
+        else:
+            self.prev_img_path = self.cur_frame_path
+            self.cur_frame_path = self.img_dir / cur_img_name
+
+        im1 = cv2.imread(str(self.prev_img_path), flags=cv2.IMREAD_GRAYSCALE)
+        im2 = cv2.imread(str(self.cur_frame_path), flags=cv2.IMREAD_GRAYSCALE)
+
+        if resize_to != [-1]:
+            assert isinstance(
+                resize_to, list
+            ), "Invid input for resize_to parameter. It must be a list of integers with the new image dimensions"
+            w_new, h_new = process_resize(im1.shape[1], im1.shape[0], resize=resize_to)
+            if any([im1.shape[1] > w_new, im1.shape[0] > h_new]):
+                im1 = cv2.resize(im1, (w_new, h_new))
+                im2 = cv2.resize(im2, (w_new, h_new))
+                if verbose:
+                    logging.info(f"Images resized to ({w_new},{h_new})")
+        self.timer.update("load imgs")
+
+        mkpts = self.matcher.match(np.asarray(im1), np.asarray(im2))
+        mkpts = self.matcher.geometric_verification(
+            threshold=2,
+            confidence=0.99,
+            symmetric_error_check=False,
+        )
+        self.matcher.viz_matches(f"{self.viz_res_path / self.cur_frame_path.name}")
+        self.timer.update("matching")
+
+        mkpts1, mkpts2 = list(mkpts.values())
+        self.compute_innovation(mkpts1, mkpts2)
+
+        return (mkpts1, mkpts2)
+
     def compute_innovation(self, mkpts1: np.ndarray, mkpts2: np.ndarray) -> None:
-        dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
-        median_dist = np.median(dist)
-        if median_dist < INNOVATION_THRESH_PIX:
+        match_dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
+        median_match_dist = np.median(match_dist)
+        if median_match_dist < INNOVATION_THRESH_PIX:
             if self.verbose:
                 logging.info(
-                    f"Median matching distance {median_dist} < {INNOVATION_THRESH_PIX}: frame rejected."
+                    f"Frame {self.cur_frame_path.name} rejected: median matching distance {median_match_dist:.2f} < {INNOVATION_THRESH_PIX}."
                 )
                 return None
         else:
             if self.K is not None:
-                threshold = 2
-                R, t, valid = estimate_pose(
+                ret = estimate_pose(
                     mkpts1,
                     mkpts2,
                     self.K,
                     self.K,
-                    thresh=threshold,
+                    thresh=2,
                 )
-                angles = np.array(euler_from_matrix(R))
-                max_angle_deg = np.max(np.rad2deg(angles))
-                if max_angle_deg < MIN_POSE_ANGLE:
+                if ret is not None:
+                    R, t, valid = ret
+                else:
+                    logging.warning(
+                        f"Unable to compute relative orientation for image {self.cur_frame_path.name}."
+                    )
+                    return None
+                if (n_matches := len(list(filter(bool, valid)))) < MIN_MATCHES:
+                    logging.warning(
+                        f"Frame {self.cur_frame_path.name} rejected: not enough inlier matches found ({n_matches}<{MIN_MATCHES})."
+                    )
+                    return None
+                angles_deg = np.rad2deg(np.array(euler_from_matrix(R)))
+                max_angle_deg = np.max(np.abs(angles_deg))
+                if max_angle_deg < MIN_POSE_ANGLE_DEG:
                     if self.verbose:
                         logging.info(
-                            f"Larger pose angle {max_angle_deg} < {MIN_POSE_ANGLE}: frame rejected."
+                            f"Frame {self.cur_frame_path.name} rejected: pose angle {max_angle_deg:.2f} < {MIN_POSE_ANGLE_DEG} (median matching distance {median_match_dist:.2f})."
                         )
                     return None
-            new_name = NextImg(self.last_img) + self.cur_img_path.suffix
-            shutil.copy(self.cur_img_path, self.keyframe_dir / new_name)
+            logging.info(
+                f"Keyframe selected: Median matching distance {median_match_dist:.2f} - Larger pose angle {max_angle_deg:.2f}."
+            )
+
+            # Update last_key_features and copy keyframe to keyframe_dir
+            self.last_keyframe_path = self.cur_frame_path
+            self.last_key_features = self.cur_features
+            new_name = f"{NextImg(self.last_img)}_{self.cur_frame_path.stem}_{self.cur_frame_path.suffix}"
+            shutil.copy(self.cur_frame_path, self.keyframe_dir / new_name)
             self.last_img += 1
 
 
 if __name__ == "__main__":
     img_dir = "data/MH_01_easy/mav0/cam0/data"
     img_ext = "png"
-    keyframe_dir = "colmap_imgs"
+    keyframe_dir = "keyframes"
+    matching_plot_dir = "matches_plot"
+    method = "alike"
+
+    # Clean output directories
+    if (keyframe_dir := Path(keyframe_dir)).exists():
+        shutil.rmtree(keyframe_dir)
+    if (matching_plot_dir := Path(matching_plot_dir)).exists():
+        shutil.rmtree(matching_plot_dir)
+
     img_dir = Path(img_dir)
     img_list = sorted(img_dir.glob(f"*.{img_ext}"))
     realtime_viz = False
-    verbose = False
+    verbose = True
     resize_to = [-1]
 
     intrinsics = [458.654, 457.296, 367.215, 248.375]
@@ -409,10 +478,10 @@ if __name__ == "__main__":
     static_rej = StaticRejection(
         img_dir,
         keyframe_dir=keyframe_dir,
-        method="alike",
+        method=method,
         resize_to=resize_to,
         verbose=verbose,
-        viz_res_path="matches_plot",
+        viz_res_path=matching_plot_dir,
         camera_matrix=Kmat,
         # realtime_viz=False, # Realtime visualization not working
     )
@@ -421,33 +490,120 @@ if __name__ == "__main__":
     mkpts = {}
     for img in progress:
         mkpts[img.name] = static_rej.match_alike(img.name)
+        # mkpts[img.name] = static_rej.match_superglue(img.name)
 
     print("Done")
 
 
 ##### ============= Old code ============ ######
 
-# elif self.method == "superglue":
-#     self.matcher_cfg = {
-#         "weights": "outdoor",
-#         "keypoint_threshold": 0.01,
-#         "max_keypoints": 128,
-#         "match_threshold": 0.2,
-#         "force_cpu": False,
-#     }
-#     self.matcher = SuperGlueMatcher(self.matcher_cfg)
 
-# elif method == "loftr":
-#     self.matcher_cfg = edict(
-#         {
-#             "device": "cuda",
-#         }
-#     )
-#     device = torch.device(self.matcher_cfg.device)
-#     self.matcher = KF.LoFTR(pretrained="outdoor").to(device).eval()
+# class AlikeTracker:
+#     """
+#     A class for tracking similar points in consecutive frames.
 
-# else:
-#     raise ValueError("Inalid input method")
+#     Args:
+#         viz_res (bool, optional): Whether to visualize the results. Defaults to True.
+
+#     Attributes:
+#         pts_prev (numpy.ndarray): Previous set of points.
+#         desc_prev (numpy.ndarray): Previous set of descriptors.
+#         viz_res (bool): Whether to visualize the results.
+
+#     Methods:
+#         track(img, pts, desc): Tracks similar points between consecutive frames.
+#         mnn_mather(desc1, desc2): Computes the nearest neighbor matches between two sets of descriptors.
+#         make_plot(img, mpts1, mpts2): Generates a visualization of the matched points.
+
+#     """
+
+#     def __init__(self, viz_res: bool = True) -> None:
+#         """
+#         Initializes the AlikeTracker object.
+
+#         Args:
+#             viz_res (bool, optional): Whether to visualize the results. Defaults to True.
+#         """
+#         self.pts_prev = None
+#         self.desc_prev = None
+#         self.viz_res = viz_res
+
+#     def track(
+#         self, img: np.ndarray, pts: np.ndarray, desc: np.ndarray
+#     ) -> Tuple[np.ndarray]:
+#         """
+#         Tracks similar points between consecutive frames.
+
+#         Args:
+#             img (numpy.ndarray): Current image.
+#             pts (numpy.ndarray): Current set of points.
+#             desc (numpy.ndarray): Current set of descriptors.
+
+#         Returns:
+#             Tuple[numpy.ndarray, numpy.ndarray, Union[None, numpy.ndarray]]: The matched points from the previous frame,
+#             the matched points from the current frame, and the visualization of the matched points if self.viz_res is True.
+
+#         """
+#         if self.pts_prev is None:
+#             self.pts_prev = pts
+#             self.desc_prev = desc
+#             mpts1, mpts2 = None, None
+#             match_fig = deepcopy(img)
+#         else:
+#             matches = self.mnn_mather(self.desc_prev, desc)
+#             mpts1, mpts2 = self.pts_prev[matches[:, 0]], pts[matches[:, 1]]
+#             if self.viz_res:
+#                 match_fig = self.make_plot(img, mpts1, mpts2)
+#             else:
+#                 match_fig = None
+#             self.pts_prev = pts
+#             self.desc_prev = desc
+
+#         return mpts1, mpts2, match_fig
+
+#     def mnn_mather(self, desc1: np.ndarray, desc2: np.ndarray) -> np.ndarray:
+#         """
+#         Computes the nearest neighbor matches between two sets of descriptors.
+
+#         Args:
+#             desc1 (numpy.ndarray): First set of descriptors.
+#             desc2 (numpy.ndarray): Second set of descriptors.
+
+#         Returns:
+#             numpy.ndarray: An array of indices indicating the nearest neighbor matches between the two sets of descriptors.
+
+#         """
+#         sim = desc1 @ desc2.transpose()
+#         sim[sim < 0.9] = 0
+#         nn12 = np.argmax(sim, axis=1)
+#         nn21 = np.argmax(sim, axis=0)
+#         ids1 = np.arange(0, sim.shape[0])
+#         mask = ids1 == nn21[nn12]
+#         matches = np.stack([ids1[mask], nn12[mask]])
+#         return matches.transpose()
+
+#     def make_plot(
+#         self, img: np.ndarray, mpts1: np.ndarray, mpts2: np.ndarray
+#     ) -> np.ndarray:
+#         """
+#         Generates a visualization of the matched points.
+
+#         Args:
+#             img (numpy.ndarray): Current image.
+#             mpts1 (numpy.ndarray): Matched points from the previous frame.
+#             mpts2 (numpy.ndarray): Matched points from the current frame.
+
+#         Returns:
+#             numpy.ndarray: An image showing the matched points.
+
+#         """
+#         match_fig = deepcopy(img)
+#         for pt1, pt2 in zip(mpts1, mpts2):
+#             p1 = (int(round(pt1[0])), int(round(pt1[1])))
+#             p2 = (int(round(pt2[0])), int(round(pt2[1])))
+#             cv2.line(match_fig, p1, p2, (0, 255, 0), lineType=16)
+#             cv2.circle(match_fig, p2, 1, (0, 0, 255), -1, lineType=16)
+#         return match_fig
 
 
 # def load_torch_image(
