@@ -336,6 +336,9 @@ class StaticRejection:
             self.last_key_features = self.model(
                 img, sub_pixel=self.matcher_cfg.subpixel
             )
+            new_name = f"{NextImg(self.last_img)}_{self.cur_frame_path.stem}{self.cur_frame_path.suffix}"
+            shutil.copy(self.cur_frame_path, self.keyframe_dir / new_name)
+
             return None
 
         self.cur_frame_path = self.img_dir / cur_frame
@@ -534,7 +537,7 @@ class StaticRejection:
 
 
 if __name__ == "__main__":
-    img_dir = "data/MH_03_medium/mav0/cam0/data"  # "data/MH_01_easy/mav0/cam0/data"
+    img_dir = "data/MH_05_difficult/mav0/cam0/data"
     img_ext = "png"
     keyframe_dir = "keyframes"
     matching_plot_dir = "matches_plot"
