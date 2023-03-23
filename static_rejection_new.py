@@ -244,7 +244,7 @@ class StaticRejection:
                 {
                     "model": "alike-t",
                     "device": "cuda",
-                    "top_k": -1,
+                    "top_k": 512,  # -1
                     "scores_th": 0.2,
                     "n_limit": 5000,
                     "subpixel": False,
@@ -363,48 +363,48 @@ class StaticRejection:
         return (mkpts1, mkpts2)
 
         # def match_superglue(self, cur_img_name):
-        self.timer = AverageTimer()
-        if self.cur_frame_path is None:
-            self.cur_frame_path = self.img_dir / cur_img_name
-            try:
-                assert (
-                    self.cur_frame_path.exists()
-                ), f"Current image {cur_img_name} does not exist in image folder"
-            except AssertionError as err:
-                logging.error(err)
-            return None
-        else:
-            self.prev_img_path = self.cur_frame_path
-            self.cur_frame_path = self.img_dir / cur_img_name
+        # self.timer = AverageTimer()
+        # if self.cur_frame_path is None:
+        #     self.cur_frame_path = self.img_dir / cur_img_name
+        #     try:
+        #         assert (
+        #             self.cur_frame_path.exists()
+        #         ), f"Current image {cur_img_name} does not exist in image folder"
+        #     except AssertionError as err:
+        #         logging.error(err)
+        #     return None
+        # else:
+        #     self.prev_img_path = self.cur_frame_path
+        #     self.cur_frame_path = self.img_dir / cur_img_name
 
-        im1 = cv2.imread(str(self.prev_img_path), flags=cv2.IMREAD_GRAYSCALE)
-        im2 = cv2.imread(str(self.cur_frame_path), flags=cv2.IMREAD_GRAYSCALE)
+        # im1 = cv2.imread(str(self.prev_img_path), flags=cv2.IMREAD_GRAYSCALE)
+        # im2 = cv2.imread(str(self.cur_frame_path), flags=cv2.IMREAD_GRAYSCALE)
 
-        if resize_to != [-1]:
-            assert isinstance(
-                resize_to, list
-            ), "Invid input for resize_to parameter. It must be a list of integers with the new image dimensions"
-            w_new, h_new = process_resize(im1.shape[1], im1.shape[0], resize=resize_to)
-            if any([im1.shape[1] > w_new, im1.shape[0] > h_new]):
-                im1 = cv2.resize(im1, (w_new, h_new))
-                im2 = cv2.resize(im2, (w_new, h_new))
-                if verbose:
-                    logging.info(f"Images resized to ({w_new},{h_new})")
-        self.timer.update("load imgs")
+        # if resize_to != [-1]:
+        #     assert isinstance(
+        #         resize_to, list
+        #     ), "Invid input for resize_to parameter. It must be a list of integers with the new image dimensions"
+        #     w_new, h_new = process_resize(im1.shape[1], im1.shape[0], resize=resize_to)
+        #     if any([im1.shape[1] > w_new, im1.shape[0] > h_new]):
+        #         im1 = cv2.resize(im1, (w_new, h_new))
+        #         im2 = cv2.resize(im2, (w_new, h_new))
+        #         if verbose:
+        #             logging.info(f"Images resized to ({w_new},{h_new})")
+        # self.timer.update("load imgs")
 
-        mkpts = self.matcher.match(np.asarray(im1), np.asarray(im2))
-        mkpts = self.matcher.geometric_verification(
-            threshold=2,
-            confidence=0.99,
-            symmetric_error_check=False,
-        )
-        self.matcher.viz_matches(f"{self.viz_res_path / self.cur_frame_path.name}")
-        self.timer.update("matching")
+        # mkpts = self.matcher.match(np.asarray(im1), np.asarray(im2))
+        # mkpts = self.matcher.geometric_verification(
+        #     threshold=2,
+        #     confidence=0.99,
+        #     symmetric_error_check=False,
+        # )
+        # self.matcher.viz_matches(f"{self.viz_res_path / self.cur_frame_path.name}")
+        # self.timer.update("matching")
 
-        mkpts1, mkpts2 = list(mkpts.values())
-        self.compute_innovation(mkpts1, mkpts2)
+        # mkpts1, mkpts2 = list(mkpts.values())
+        # self.compute_innovation(mkpts1, mkpts2)
 
-        return (mkpts1, mkpts2)
+        # return (mkpts1, mkpts2)
 
     def compute_innovation(self, mkpts1: np.ndarray, mkpts2: np.ndarray) -> bool:
         match_dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
@@ -451,7 +451,7 @@ class StaticRejection:
             # Update last_key_features and copy keyframe to keyframe_dir
             self.last_keyframe_path = self.cur_frame_path
             self.last_key_features = self.cur_features
-            new_name = f"{NextImg(self.last_img)}_{self.cur_frame_path.stem}_{self.cur_frame_path.suffix}"
+            new_name = f"{NextImg(self.last_img)}_{self.cur_frame_path.stem}{self.cur_frame_path.suffix}"
             shutil.copy(self.cur_frame_path, self.keyframe_dir / new_name)
             self.last_img += 1
             return True
