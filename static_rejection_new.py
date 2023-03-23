@@ -1,7 +1,7 @@
 import logging
 import shutil
-from copy import deepcopy
 import sys
+from copy import deepcopy
 
 # import subprocess
 from pathlib import Path
@@ -13,7 +13,8 @@ import kornia.feature as KF
 import numpy as np
 import torch
 from easydict import EasyDict as edict
-from icepy.matching.superglue_matcher import SuperGlueMatcher
+
+# from icepy.matching.superglue_matcher import SuperGlueMatcher
 from tqdm import tqdm
 
 from lib.thirdparty.alike.alike import ALike, configs
@@ -41,6 +42,16 @@ class AlikeMatcher:
         desc_cur: np.ndarray,
         img_for_plot: np.ndarray = None,
     ) -> None:
+        """
+        Initializes an instance of the AlikeMatcher class.
+
+        Args:
+            pts_prev (numpy.ndarray): Array of points in the previous frame.
+            desc_prev (numpy.ndarray): Array of descriptors corresponding to the points in the previous frame.
+            pts_cur (numpy.ndarray): Array of points in the current frame.
+            desc_cur (numpy.ndarray): Array of descriptors corresponding to the points in the current frame.
+            img_for_plot (numpy.ndarray, optional): Image to use for visualization. Defaults to None.
+        """
         self.pts_prev = pts_prev
         self.desc_prev = desc_prev
         self.pts_cur = pts_cur
@@ -48,6 +59,12 @@ class AlikeMatcher:
         self.img = img_for_plot
 
     def match(self) -> Tuple[np.ndarray]:
+        """
+        Matches the descriptors in the current frame to the descriptors in the previous frame.
+
+        Returns:
+            Tuple[numpy.ndarray]: A tuple containing the matched points in the previous frame, the matched points in the current frame and a plot of the matched points (as numpy array that can be visualized or saved with opencv).
+        """
         matches = self.mnn_matcher(self.desc_prev, self.desc_cur)
         mpts1, mpts2 = self.pts_prev[matches[:, 0]], self.pts_cur[matches[:, 1]]
         if self.img is not None:
@@ -198,15 +215,15 @@ class StaticRejection:
         Initializes the StaticRejection class.
 
         Args:
-            img_dir (Union[str, Path]): Directory where images are saved.
-            keyframe_dir (Union[str, Path]): Directory to save keyframes.
-            method (str, optional): Image matching method. Defaults to "alike".
-            matcher_cfg (dict, optional): Image matcher configuration. Defaults to None.
-            camera_matrix (np.ndarray, optional): Camera matrix for pose estimation. Defaults to None.
-            resize_to (List[int], optional): Resized image dimensions. Defaults to [-1].
-            realtime_viz (bool, optional): Real-time visualization flag. Defaults to False.
-            viz_res_path (Union[str, Path], optional): Directory to save visualization results. Defaults to None.
-            verbose (bool, optional): Verbose flag. Defaults to False.
+            img_dir (Union[str, Path]): The directory with input images.
+            keyframe_dir (Union[str, Path]): The directory where the keyframes will be saved.
+            method (str, optional): The image matching method to be used. Defaults to "alike".
+            matcher_cfg (dict, optional): The configuration dictionary for the image matcher. Defaults to None.
+            camera_matrix (np.ndarray, optional): The camera matrix used for pose estimation. Defaults to None.
+            resize_to (List[int], optional): A list with the new dimensions for resizing the images. Defaults to [-1].
+            realtime_viz (bool, optional): A flag that enables real-time visualization of the matching process. Defaults to False.
+            viz_res_path (Union[str, Path], optional): The directory where the visualization results will be saved. Defaults to None.
+            verbose (bool, optional): A flag that enables verbose logging. Defaults to False.
         """
         self.last_img = 0
         self.img_dir = Path(img_dir)
@@ -258,7 +275,6 @@ class StaticRejection:
                 scores_th=self.matcher_cfg.scores_th,
                 n_limit=self.matcher_cfg.n_limit,
             )
-            # self.matcher = AlikeTracker()
 
         elif self.method == "superglue":
             self.matcher_cfg = {
@@ -345,66 +361,60 @@ class StaticRejection:
             cv2.imwrite(f"{self.viz_res_path / self.cur_frame_path.name}", match_img)
             self.timer.update("export res")
 
-        if self.verbose:
-            self.timer.print(self.method)
+        return (mkpts1, mkpts2, match_img)
 
-        keep_current_frame = self.compute_innovation(mkpts1, mkpts2)
+    # def match_superglue(self, cur_img_name):
+    #     """
+    #     match_superglue Method not workink
 
-        if realtime_viz:
-            if keep_current_frame:
-                win_name = self.method + ": Keyframe accepted"
-            else:
-                win_name = self.method + ": Frame rejected"
-            cv2.setWindowTitle(self.method, win_name)
-            cv2.imshow(self.method, match_img)
-            if cv2.waitKey(1) == ord("q"):
-                sys.exit()
+    #     Args:
+    #         cur_img_name (_type_): _description_
 
-        return (mkpts1, mkpts2)
+    #     Returns:
+    #         _type_: _description_
+    #     """
+    #     self.timer = AverageTimer()
+    #     if self.cur_frame_path is None:
+    #         self.cur_frame_path = self.img_dir / cur_img_name
+    #         try:
+    #             assert (
+    #                 self.cur_frame_path.exists()
+    #             ), f"Current image {cur_img_name} does not exist in image folder"
+    #         except AssertionError as err:
+    #             logging.error(err)
+    #         return None
+    #     else:
+    #         self.prev_img_path = self.cur_frame_path
+    #         self.cur_frame_path = self.img_dir / cur_img_name
 
-        # def match_superglue(self, cur_img_name):
-        # self.timer = AverageTimer()
-        # if self.cur_frame_path is None:
-        #     self.cur_frame_path = self.img_dir / cur_img_name
-        #     try:
-        #         assert (
-        #             self.cur_frame_path.exists()
-        #         ), f"Current image {cur_img_name} does not exist in image folder"
-        #     except AssertionError as err:
-        #         logging.error(err)
-        #     return None
-        # else:
-        #     self.prev_img_path = self.cur_frame_path
-        #     self.cur_frame_path = self.img_dir / cur_img_name
+    #     im1 = cv2.imread(str(self.prev_img_path), flags=cv2.IMREAD_GRAYSCALE)
+    #     im2 = cv2.imread(str(self.cur_frame_path), flags=cv2.IMREAD_GRAYSCALE)
 
-        # im1 = cv2.imread(str(self.prev_img_path), flags=cv2.IMREAD_GRAYSCALE)
-        # im2 = cv2.imread(str(self.cur_frame_path), flags=cv2.IMREAD_GRAYSCALE)
+    #     if resize_to != [-1]:
+    #         assert isinstance(
+    #             resize_to, list
+    #         ), "Invid input for resize_to parameter. It must be a list of integers with the new image dimensions"
+    #         w_new, h_new = process_resize(im1.shape[1], im1.shape[0], resize=resize_to)
+    #         if any([im1.shape[1] > w_new, im1.shape[0] > h_new]):
+    #             im1 = cv2.resize(im1, (w_new, h_new))
+    #             im2 = cv2.resize(im2, (w_new, h_new))
+    #             if verbose:
+    #                 logging.info(f"Images resized to ({w_new},{h_new})")
+    #     self.timer.update("load imgs")
 
-        # if resize_to != [-1]:
-        #     assert isinstance(
-        #         resize_to, list
-        #     ), "Invid input for resize_to parameter. It must be a list of integers with the new image dimensions"
-        #     w_new, h_new = process_resize(im1.shape[1], im1.shape[0], resize=resize_to)
-        #     if any([im1.shape[1] > w_new, im1.shape[0] > h_new]):
-        #         im1 = cv2.resize(im1, (w_new, h_new))
-        #         im2 = cv2.resize(im2, (w_new, h_new))
-        #         if verbose:
-        #             logging.info(f"Images resized to ({w_new},{h_new})")
-        # self.timer.update("load imgs")
+    #     mkpts = self.matcher.match(np.asarray(im1), np.asarray(im2))
+    #     mkpts = self.matcher.geometric_verification(
+    #         threshold=2,
+    #         confidence=0.99,
+    #         symmetric_error_check=False,
+    #     )
+    #     self.matcher.viz_matches(f"{self.viz_res_path / self.cur_frame_path.name}")
+    #     self.timer.update("matching")
 
-        # mkpts = self.matcher.match(np.asarray(im1), np.asarray(im2))
-        # mkpts = self.matcher.geometric_verification(
-        #     threshold=2,
-        #     confidence=0.99,
-        #     symmetric_error_check=False,
-        # )
-        # self.matcher.viz_matches(f"{self.viz_res_path / self.cur_frame_path.name}")
-        # self.timer.update("matching")
+    #     mkpts1, mkpts2 = list(mkpts.values())
+    #     self.compute_innovation(mkpts1, mkpts2)
 
-        # mkpts1, mkpts2 = list(mkpts.values())
-        # self.compute_innovation(mkpts1, mkpts2)
-
-        # return (mkpts1, mkpts2)
+    #     return (mkpts1, mkpts2)
 
     def compute_innovation(self, mkpts1: np.ndarray, mkpts2: np.ndarray) -> bool:
         match_dist = np.linalg.norm(mkpts1 - mkpts2, axis=1)
@@ -456,6 +466,29 @@ class StaticRejection:
             self.last_img += 1
             return True
 
+    def check_new_frame(self, cur_frame: Union[str, Path]) -> Tuple[np.ndarray]:
+        if self.method == "alike":
+            ret = self.match_alike(cur_frame)
+            if ret is not None:
+                mkpts1, mkpts2, match_img = ret
+            else:
+                return None
+
+        if self.verbose:
+            self.timer.print(self.method)
+
+        keep_current_frame = self.compute_innovation(mkpts1, mkpts2)
+
+        if realtime_viz and match_img is not None:
+            if keep_current_frame:
+                win_name = self.method + ": Keyframe accepted"
+            else:
+                win_name = self.method + ": Frame rejected"
+            cv2.setWindowTitle(self.method, win_name)
+            cv2.imshow(self.method, match_img)
+            if cv2.waitKey(1) == ord("q"):
+                sys.exit()
+
 
 if __name__ == "__main__":
     img_dir = "data/MH_01_easy/mav0/cam0/data"
@@ -498,8 +531,7 @@ if __name__ == "__main__":
     progress = tqdm(img_list)
     mkpts = {}
     for img in progress:
-        mkpts[img.name] = static_rej.match_alike(img.name)
-        # mkpts[img.name] = static_rej.match_superglue(img.name)
+        mkpts[img.name] = static_rej.check_new_frame(img.name)
 
     print("Done")
 
