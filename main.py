@@ -35,6 +35,7 @@ from lib import (
     database,
     export_cameras,
     static_rejection,
+    keyframe_selection,
 )
 from lib.utils import Helmert, Id2name
 
