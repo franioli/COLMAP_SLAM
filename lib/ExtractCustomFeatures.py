@@ -37,8 +37,10 @@ def SuperPoint(img_name, desc_folder):
         
     return kp, desc, kp_numb
 
-def ExtractCustomFeatures(CUSTOM_DETECTOR, PATH_TO_LOCAL_FEATURES, DATABASE, kfrms, img_dict, KEYFRAMES_DIR):
-    inverted_img_dict = {v: k for k, v in img_dict.items()}
+def ExtractCustomFeatures(CUSTOM_DETECTOR, PATH_TO_LOCAL_FEATURES, DATABASE, KEYFRAMES_DIR, keyframes_list):
+    #inverted_img_dict = {v: k for k, v in img_dict.items()}
+    kfrms = os.listdir(KEYFRAMES_DIR)
+    kfrms.sort()
     db = db_colmap.COLMAPDatabase.connect(str(DATABASE))
     db.create_tables()
 
@@ -131,9 +133,13 @@ def ExtractCustomFeatures(CUSTOM_DETECTOR, PATH_TO_LOCAL_FEATURES, DATABASE, kfr
                 db.commit()    
 
     elif CUSTOM_DETECTOR == 'SUPERPOINT':
-        for img in kfrms:            
+        for img in kfrms:  
+            print("existing_images", existing_images)
+            print("img", img)          
             if img not in existing_images:
-                kp, desc, kp_numb = SuperPoint(inverted_img_dict[img][:-3]+'png', PATH_TO_LOCAL_FEATURES)
+                keyframe_obj = list(filter(lambda obj: obj.keyframe_name == img, keyframes_list))[0]
+                image_name = keyframe_obj.image_name
+                kp, desc, kp_numb = SuperPoint(image_name, PATH_TO_LOCAL_FEATURES)
                 kp = kp[:,0:2]
                 desc = desc[:, :128]
 

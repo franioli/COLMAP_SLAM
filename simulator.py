@@ -33,10 +33,10 @@ imgs.sort()
 #    time.sleep(0.25)
 
 ### EuRoC Machine Hall
-for i in range(0, 1000000, 20):
+for i in range(0, 1000000, 10):
     img = imgs[i]
     # shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i))
     im = Image.open("{}/{}".format(INPUT_DIR, img))
     rgb_im = im.convert("RGB")
-    rgb_im.save("{}/{}.jpg".format(OUTPUT_DIR, img[:-4]))
+    rgb_im.save("{}/{}.jpg".format(OUTPUT_DIR, img[:-4])) #jpg
     time.sleep(1)

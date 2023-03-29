@@ -1,15 +1,13 @@
 # POSSIBLE CRITICAL POINTS:
-# Check how input images are sorted >imgs = sorted(imgs, key=lambda x: int(x[6:-4]))
 # Initialization of the photogrammetric model. If necessary the initial pair can be fixed in the lib/mapper_first_loop.ini file
 # Exif gnss data works properly only when directions are N and E
 
 # NOTES:
-# Maybe newer_imgs can be eliminated
 # matcher.ini us used only in the first loop. In the others, options are directly passed to the sequential_matcher API, see the code
+# keyframe_obj = list(filter(lambda obj: obj.image_name == img, keyframes_list))[0] Maybe is quicker to cycle with for loop
 
 # FEATURES TO BE ADDED:
 # restart when the reconstruction breaks
-# treat images with a class, so it will be easer to keep track og id, original, names, orientation, etc
 
 import configparser
 import os
@@ -17,11 +15,12 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-
+import pickle
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import piexif
+
 from matplotlib import interactive
 from mpl_toolkits import mplot3d
 from pyquaternion import quaternion
@@ -39,17 +38,19 @@ from lib import (
 )
 from lib.utils import Helmert, Id2name
 
+
 ### OPTIONS FOR EKF - Development temporarily interrupted, do not change values
 T = 0.1
 state_init = False
 
-### MAIN STARTS HERE
+
 # Working directories
 CURRENT_DIR = Path(os.getcwd())
 TEMP_DIR = CURRENT_DIR / "temp"
 KEYFRAMES_DIR = CURRENT_DIR / "colmap_imgs"
 OUT_FOLDER = CURRENT_DIR / "outs"
 DATABASE = CURRENT_DIR / "outs" / "db.db"
+
 
 # Import conf options
 config = configparser.ConfigParser()
@@ -69,15 +70,13 @@ USE_SERVER = config["DEFAULT"].getboolean("USE_SERVER")
 LAUNCH_SERVER_PATH = Path(config["DEFAULT"]["LAUNCH_SERVER_PATH"])
 DEBUG = config["DEFAULT"].getboolean("DEBUG")
 MAX_IMG_BATCH_SIZE = int(config["DEFAULT"]["MAX_IMG_BATCH_SIZE"])
-STATIC_IMG_REJECTION_METHOD = config["DEFAULT"][
-    "STATIC_IMG_REJECTION_METHOD"
-]  # 'radiometric' or 'root_sift'
 SLEEP_TIME = float(config["DEFAULT"]["SLEEP_TIME"])
 LOOP_CYCLES = int(config["DEFAULT"]["LOOP_CYCLES"])
 COLMAP_EXE_PATH = Path(config["DEFAULT"]["COLMAP_EXE_PATH"])
 IMGS_FROM_SERVER = Path(
     config["DEFAULT"]["IMGS_FROM_SERVER"]
 )  # Path(r"/home/luca/Scrivania/3DOM/Github_lcmrl/Server_Connection/c++_send_images/imgs")
+IMG_FORMAT = config["DEFAULT"]["IMG_FORMAT"]
 MAX_N_FEATURES = int(config["DEFAULT"]["MAX_N_FEATURES"])
 INITIAL_SEQUENTIAL_OVERLAP = int(config["DEFAULT"]["INITIAL_SEQUENTIAL_OVERLAP"])
 SEQUENTIAL_OVERLAP = INITIAL_SEQUENTIAL_OVERLAP
@@ -85,6 +84,11 @@ ONLY_SLAM = config["DEFAULT"].getboolean("ONLY_SLAM")
 CUSTOM_FEATURES = config["DEFAULT"].getboolean("CUSTOM_FEATURES")
 PATH_TO_LOCAL_FEATURES = Path(config["DEFAULT"]["PATH_TO_LOCAL_FEATURES"])
 CUSTOM_DETECTOR = config["DEFAULT"]["CUSTOM_DETECTOR"]
+
+# KEYFRAME_SELECTION
+KFS_METHOD = config["KEYFRAME_SELECTION"]["METHOD"]
+KFS_LOCAL_FEATURE = config["KEYFRAME_SELECTION"]["LOCAL_FEATURE"]
+KFS_N_FEATURES = int(config["KEYFRAME_SELECTION"]["N_FEATURES"])
 
 # EXTERNAL_SENSORS
 USE_EXTERNAL_CAM_COORD = config["EXTERNAL_SENSORS"].getboolean("USE_EXTERNAL_CAM_COORD")
@@ -101,25 +105,18 @@ VOCAB_TREE = config["INCREMENTAL_RECONSTRUCTION"]["VOCAB_TREE"]
 
 
 # Initialize variables
-position_dict = {}
-img_dict = {}
-ref_matches = []
+keyframes_list = []
+img_dict = {} ############################################# it is used in feature extraction, maybe it can be eliminated
 processed_imgs = []
-img_batch = []
-img_batch_n = []
 oriented_imgs_batch = []
-pointer = 0
-delta = 0
+pointer = 0 # pointer points to the last oriented image
+delta = 0 # delta is equal to the number of processed but not oriented imgs
 ended_first_colmap_loop = False
-total_imgs = "000000"
-Xslam = []
-Yslam = []
-Zslam = []
-Xkf = []
-Ykf = []
-Zkf = []
-one_time = False
-reference_imgs_dict = {}
+one_time = False # It becomes true after the first batch of images is oriented
+# The first batch of images define the reference system.
+# At following epochs the photogrammetric model will be reported in this ref system.
+reference_imgs = []
+
 
 # Manage output folders
 if not os.path.exists(TEMP_DIR):
@@ -141,6 +138,9 @@ if not os.path.exists(IMGS_FROM_SERVER):
 else:
     shutil.rmtree(IMGS_FROM_SERVER)
     os.makedirs(IMGS_FROM_SERVER)
+
+if os.path.exists("./keyframes.pkl"):
+    os.remove("./keyframes.pkl")
 
 
 # If the camera coordinates are known from other sensors than gnss,
@@ -165,13 +165,17 @@ else:
 
 for i in range(LOOP_CYCLES):
     imgs = os.listdir(IMGS_FROM_SERVER)
-    imgs = sorted(imgs, key=lambda x: int(x[:-4]))
-    newer_imgs = False
-    processed = 0
+    img_batch = []
+    
+    # Sort imgs
+    format_lenght = len(IMG_FORMAT)
+    imgs = sorted(imgs, key=lambda x: int(x[:-format_lenght]))
+    newer_imgs = False # To control that new keyframes are added
+    processed = 0 # Number of processed images
 
-    # Choose if keeping the pair
+    # Keyframe selection
     if len(imgs) < 2:
-        print("[{}] Not enough images. len(imgs) < 2".format(i))
+        pass
 
     elif len(imgs) >= 2:
         for c, img in enumerate(imgs):
@@ -181,98 +185,78 @@ for i in range(LOOP_CYCLES):
             if (
                 img not in processed_imgs
                 and c >= 1
-                and c != pointer
-                and c > pointer + delta
                 and processed < MAX_IMG_BATCH_SIZE
             ):
+                print()
+                print()
+                print("pointer", pointer, "c", c)
                 img1 = imgs[pointer]
-                img2 = imgs[c]
+                img2 = img
                 start = time.time()
+                old_n_keyframes = len(os.listdir(KEYFRAMES_DIR))
+
                 (
-                    ref_matches,
-                    newer_imgs,
-                    total_imgs,
-                    img_dict,
-                    img_batch,
+                    keyframes_list,
                     pointer,
-                ) = static_rejection.StaticRejection(
-                    STATIC_IMG_REJECTION_METHOD,
+                    delta,
+                ) = keyframe_selection.KeyframeSelection(
+                    KFS_METHOD,
+                    KFS_LOCAL_FEATURE,
+                    KFS_N_FEATURES,
                     img1,
                     img2,
                     IMGS_FROM_SERVER,
-                    CURRENT_DIR,
                     KEYFRAMES_DIR,
-                    COLMAP_EXE_PATH,
-                    MAX_N_FEATURES,
-                    ref_matches,
-                    DEBUG,
-                    newer_imgs,
-                    total_imgs,
-                    img_dict,
-                    img_batch,
+                    keyframes_list,
                     pointer,
-                    colmap_exe,
-                )  # pointer, delta,
-                end = time.time()
-                print("STATIC CHECK {}s".format(end - start), end="\r")
+                    delta,
+                )
+
+                # Set if new keyframes are added
+                new_n_keyframes = len(os.listdir(KEYFRAMES_DIR))
+                if new_n_keyframes - old_n_keyframes > 0:
+                    newer_imgs = True
+                    img_batch.append(img)
+                    keyframe_obj = list(filter(lambda obj: obj.image_name == img, keyframes_list))[0]
+
+                    # Load exif data and store GNSS position if present
+                    # or load camera cooridnates from other sensors
+                    exif_data = []
+                    try:
+                        exif_data = piexif.load("{}/imgs/{}".format(os.getcwd(), img2))
+                    except:
+                        print("Error loading exif data. Image file could be corrupted.")
+
+                    if exif_data != [] and len(exif_data["GPS"].keys()) != 0:
+                        lat = exif_data["GPS"][2]
+                        long = exif_data["GPS"][4]
+                        alt = exif_data["GPS"][6]
+                        enuX, enuY, enuZ = ConvertGnssRefSystm.CovertGnssRefSystm(
+                            lat, long, alt
+                        )
+                        keyframe_obj.GPSLatitude = lat
+                        keyframe_obj.GPSLongitude = long
+                        keyframe_obj.GPSAltitude = alt
+                        keyframe_obj.enuX = enuX
+                        keyframe_obj.enuY = enuY
+                        keyframe_obj.enuZ = enuZ
+
+                    elif exif_data != [] and img2 in camera_coord_other_sensors.keys():
+                        print("img2", img2)
+                        enuX, enuY, enuZ = (
+                            camera_coord_other_sensors[img2][0],
+                            camera_coord_other_sensors[img2][1],
+                            camera_coord_other_sensors[img2][2],
+                        )
+                        keyframe_obj.enuX = enuX
+                        keyframe_obj.enuY = enuY
+                        keyframe_obj.enuZ = enuZ
+
                 processed_imgs.append(img)
                 processed += 1
+                end = time.time()
+                print("STATIC CHECK {}s".format(end - start), end="\r")
 
-                # Load exif data and store GNSS position if present
-                # or load camera cooridnates from other sensors
-                exif_data = []
-                try:
-                    exif_data = piexif.load("{}/imgs/{}".format(os.getcwd(), img2))
-                except:
-                    print("Error loading exif data. Image file could be corrupted.")
-
-                if exif_data != [] and len(exif_data["GPS"].keys()) != 0:
-                    print("img2", img2)
-                    lat = exif_data["GPS"][2]
-                    long = exif_data["GPS"][4]
-                    alt = exif_data["GPS"][6]
-
-                    enuX, enuY, enuZ = ConvertGnssRefSystm.CovertGnssRefSystm(
-                        lat, long, alt
-                    )
-
-                    position_dict[img2] = {
-                        "GPSLatitude": exif_data["GPS"][2],
-                        "GPSLongitude": exif_data["GPS"][4],
-                        "GPSAltitude": exif_data["GPS"][6],
-                        "enuX": enuX,
-                        "enuY": enuY,
-                        "enuZ": enuZ,
-                        "slamX": "-",
-                        "slamY": "-",
-                        "slamZ": "-",
-                    }
-
-                elif exif_data != [] and img2 in camera_coord_other_sensors.keys():
-                    print("img2", img2)
-                    enuX, enuY, enuZ = (
-                        camera_coord_other_sensors[img2][0],
-                        camera_coord_other_sensors[img2][1],
-                        camera_coord_other_sensors[img2][2],
-                    )
-                    position_dict[img2] = {
-                        "enuX": enuX,
-                        "enuY": enuY,
-                        "enuZ": enuZ,
-                        "slamX": "-",
-                        "slamY": "-",
-                        "slamZ": "-",
-                    }
-
-                else:
-                    position_dict[img2] = {
-                        "enuX": "-",
-                        "enuY": "-",
-                        "enuZ": "-",
-                        "slamX": "-",
-                        "slamY": "-",
-                        "slamZ": "-",
-                    }
 
     # INCREMENTAL RECONSTRUCTION
     kfrms = os.listdir(KEYFRAMES_DIR)
@@ -280,8 +264,10 @@ for i in range(LOOP_CYCLES):
 
     if len(kfrms) >= MIN_KEYFRAME_FOR_INITIALIZATION and newer_imgs == True:
         start_loop = time.time()
+        print()
         print(f"[LOOP : {i}]")
         print(f"DYNAMIC MATCHING WINDOW: ", SEQUENTIAL_OVERLAP)
+        print()
 
         # FIRST LOOP IN COLMAP - INITIALIZATION
         if ended_first_colmap_loop == False:
@@ -337,9 +323,8 @@ for i in range(LOOP_CYCLES):
                     CUSTOM_DETECTOR,
                     PATH_TO_LOCAL_FEATURES,
                     DATABASE,
-                    kfrms,
-                    img_dict,
                     KEYFRAMES_DIR,
+                    keyframes_list,
                 )
                 end_time = time.time()
                 print("FEATURE EXTRACTION: ", end_time - st_time)
@@ -416,9 +401,8 @@ for i in range(LOOP_CYCLES):
                     CUSTOM_DETECTOR,
                     PATH_TO_LOCAL_FEATURES,
                     DATABASE,
-                    kfrms,
-                    img_dict,
                     KEYFRAMES_DIR,
+                    keyframes_list,
                 )
                 end_time = time.time()
                 print("FEATURE EXTRACTION: ", end_time - st_time)
@@ -499,260 +483,259 @@ for i in range(LOOP_CYCLES):
             print("MODEL CONVERSION: ", end_time - st_time)
 
         # Export cameras
+        lines, oriented_dict = export_cameras.ExportCameras(
+            OUT_FOLDER / "images.txt", keyframes_list
+        )
         if DEBUG:
-            lines, oriented_dict = export_cameras.ExportCameras(
-                OUT_FOLDER / "images.txt", img_dict
-            )
             with open(OUT_FOLDER / "loc.txt", "w") as file:
                 for line in lines:
                     file.write(line)
 
         # Keep track of sucessfully oriented frames in the current img_batch
-        for im_input_format in img_batch:
-            im_zero_format = img_dict[im_input_format]
-            img_batch_n.append(int(im_zero_format[:-4]))
-            if int(im_zero_format[:-4]) in list(oriented_dict.keys()):
-                oriented_imgs_batch.append(int(im_zero_format[:-4]))
+        for image in img_batch:
+            keyframe_obj = list(filter(lambda obj: obj.image_name == image, keyframes_list))[0]
+            if keyframe_obj.keyframe_id in list(oriented_dict.keys()):
+                oriented_imgs_batch.append(image)
+                keyframe_obj.oriented = True
 
         # Define new reference img (pointer)
-        last_img_n = max(list(oriented_dict.keys()))
-        max_img_n = max(img_batch_n)
-        img_name = Id2name(last_img_n)
-        inverted_img_dict = {v: k for k, v in img_dict.items()}
-        for c, el in enumerate(imgs):
-            if el == inverted_img_dict[img_name]:
-                pointer = c  # pointer to the last oriented image
-        delta = max_img_n - last_img_n
+        print("list(oriented_dict.keys())")
+        print(list(oriented_dict.keys()))
+        last_oriented_keyframe = np.max(list(oriented_dict.keys()))
+        print("last_oriented_keyframe", last_oriented_keyframe)
+        keyframe_obj = list(filter(lambda obj: obj.keyframe_id == last_oriented_keyframe, keyframes_list))[0]
+        n_keyframes = len(os.listdir(KEYFRAMES_DIR))
+        last_keyframe = list(filter(lambda obj: obj.keyframe_id == n_keyframes-1, keyframes_list))[0]
+        last_keyframe_img_id = last_keyframe.image_id
+        print("last_keyframe_img_id", last_keyframe_img_id)
+        print("n_keyframes", n_keyframes)
+        pointer = keyframe_obj.image_id  # pointer to the last oriented image
+        print("pointer", pointer)
+        delta = last_keyframe_img_id - pointer
+        print("delta", delta)
+        print()
 
         # Update dynamic window for sequential matching
         if delta != 0:
-            SEQUENTIAL_OVERLAP = INITIAL_SEQUENTIAL_OVERLAP + 2 * delta
+            SEQUENTIAL_OVERLAP = INITIAL_SEQUENTIAL_OVERLAP + 2 * (n_keyframes - last_oriented_keyframe)
         else:
             SEQUENTIAL_OVERLAP = INITIAL_SEQUENTIAL_OVERLAP
 
+        ### STORE SLAM SOLUTION
         oriented_dict_list = list(oriented_dict.keys())
         oriented_dict_list.sort()
+
+        # Define a reference img. All other oriented keyframes will be reported in the ref of the first keyframe
+        if one_time == False:
+            ref_img_id = oriented_dict_list[0]
+            keyframe_obj = list(filter(lambda obj: obj.keyframe_id == ref_img_id, keyframes_list))[0]
+            ref_img_name = keyframe_obj.image_name
+            reference_imgs.append(ref_img_name)
+            keyframe_obj.slamX = 0.0
+            keyframe_obj.slamY = 0.0
+            keyframe_obj.slamZ = 0.0
 
         # Calculate transformation to report new slam solution on the reference one
         if one_time == True:
             list1 = []
             list2 = []
-            for img_id in oriented_dict_list:
-                img_name = inverted_img_dict[Id2name(img_id)]
-                if img_name in reference_imgs_dict.keys():
+            for img_name in reference_imgs:
+                #keyframe_obj = list(filter(lambda obj: obj.image_name == img_name, keyframes_list))[0]
+                keyframe_obj = [obj for obj in keyframes_list if obj.image_name == img_name][0]
+                img_id = keyframe_obj.keyframe_id
+                if img_id in oriented_dict_list:
                     list1.append(oriented_dict[img_id][1])
-                    list2.append(reference_imgs_dict[img_name])
+                    list2.append((keyframe_obj.slamX, keyframe_obj.slamY, keyframe_obj.slamZ))
             R_, t_, scale_factor_ = Helmert(list1, list2, OS, DEBUG)
 
         # Apply rotantion matrix to move the updated photogrammetric model to the first model reference system
-        for img_id in oriented_dict_list:
-            img_name = inverted_img_dict[Id2name(img_id)]
-            ref_img = list(position_dict.keys())[0]
+        for keyframe_id in oriented_dict_list:
+            keyframe_obj = list(filter(lambda obj: obj.keyframe_id == keyframe_id, keyframes_list))[0]
+            #keyframe_obj = [obj for obj in keyframes_list if obj.keyframe_id == keyframe_id][0]
+            img_name = keyframe_obj.image_name
 
-            if img_name in position_dict.keys():
-                if img_name == ref_img:
-                    ref_img_id = img_id
-                    quat1 = quaternion.Quaternion(oriented_dict[img_id][2][0])
-                    t1 = oriented_dict[img_id][2][1]
-                    position_dict[img_name]["slamX"] = 0.0
-                    position_dict[img_name]["slamY"] = 0.0
-                    position_dict[img_name]["slamZ"] = 0.0
-
-                # The first model becomes the reference model (reference_imgs_dict)
-                elif img_name != ref_img and one_time == False:
-                    vec_pos = np.array(
-                        [
-                            [
-                                oriented_dict[img_id][1][0],
-                                oriented_dict[img_id][1][1],
-                                oriented_dict[img_id][1][2],
-                            ]
-                        ]
-                    ).T
-                    camera_location = vec_pos
-                    position_dict[img_name]["slamX"] = camera_location[0, 0]
-                    position_dict[img_name]["slamY"] = camera_location[1, 0]
-                    position_dict[img_name]["slamZ"] = camera_location[2, 0]
-                    reference_imgs_dict[img_name] = (
-                        camera_location[0, 0],
-                        camera_location[1, 0],
-                        camera_location[2, 0],
-                    )
-
-                # The subsequent models must be rotoranslated on the reference model, to always keep the same reference system
-                elif img_name != ref_img and one_time == True:
-                    vec_pos = np.array(
-                        [
-                            [
-                                oriented_dict[img_id][1][0],
-                                oriented_dict[img_id][1][1],
-                                oriented_dict[img_id][1][2],
-                            ]
-                        ]
-                    ).T
-                    vec_pos_scaled = np.dot(R_, vec_pos) + t_
-                    position_dict[img_name]["slamX"] = vec_pos_scaled[0, 0]
-                    position_dict[img_name]["slamY"] = vec_pos_scaled[1, 0]
-                    position_dict[img_name]["slamZ"] = vec_pos_scaled[2, 0]
+            if img_name == ref_img_name:
+                pass
+            
+            # The first model becomes the reference model (reference_imgs_dict)
+            elif img_name != ref_img_name and one_time == False:
+                camera_location = np.array(oriented_dict[keyframe_id][1]).reshape((3,1))
+                keyframe_obj.slamX = camera_location[0,0]
+                keyframe_obj.slamY = camera_location[1,0]
+                keyframe_obj.slamZ = camera_location[2,0]
+                reference_imgs.append(img_name)
+            
+            # The subsequent models must be rotoranslated on the reference model, to always keep the same reference system
+            elif img_name != ref_img_name and one_time == True:
+                camera_location = np.array(oriented_dict[keyframe_id][1]).reshape((3,1))
+                vec_pos_scaled = np.dot(R_, camera_location) + t_
+                keyframe_obj.slamX = vec_pos_scaled[0, 0]
+                keyframe_obj.slamY = vec_pos_scaled[1, 0]
+                keyframe_obj.slamZ = vec_pos_scaled[2, 0]
 
         one_time = True
+        with open("./keyframes.pkl", 'wb') as f:
+            pickle.dump(keyframes_list, f)
 
-        if ONLY_SLAM != False:
-            # INITIALIZATION SCALE FACTOR AND KALMAN FILTER
-            if len(kfrms) == 30:
-                # For images with both slam and gnss solution
-                # georeference slam with Helmert transformation
-                slam_coord = []
-                gnss_coord = []
-                for img in position_dict:
-                    if position_dict[img]["enuX"] != "-":
-                        gnss_coord.append(
-                            (
-                                position_dict[img]["enuX"],
-                                position_dict[img]["enuY"],
-                                position_dict[img]["enuZ"],
-                            )
-                        )
-                        slam_coord.append(
-                            (
-                                position_dict[img]["slamX"],
-                                position_dict[img]["slamY"],
-                                position_dict[img]["slamZ"],
-                            )
-                        )
-                # print(slam_coord, gnss_coord)
 
-                R, t, scale_factor = Helmert(slam_coord, gnss_coord, OS, DEBUG)
-                # print(R, t)
 
-                # Store positions
-                slam_coord = []
-                for img in position_dict:
-                    slam_coord.append(
-                        (
-                            position_dict[img]["slamX"],
-                            position_dict[img]["slamY"],
-                            position_dict[img]["slamZ"],
-                        )
-                    )
-                for pos in slam_coord:
-                    if pos[0] != "-":
-                        pos = np.array([[pos[0]], [pos[1]], [pos[2]]])
-                        scaled_pos = np.dot(R, pos) + t
-                        Xslam.append(scaled_pos[0, 0])
-                        Yslam.append(scaled_pos[1, 0])
-                        Zslam.append(scaled_pos[2, 0])
-
-                # plt.ion()
-                # interactive(True)
-                # fig = plt.figure()
-                # ax = plt.axes(projection ='3d')
-                # MIN = min([min(Xslam),min(Yslam),min(Zslam)])
-                # MAX = max([max(Xslam),max(Yslam),max(Zslam)])
-                # ax.cla()
-                # ax.scatter(Xslam, Yslam, Zslam, 'black')
-                # ax.set_title('c')
-                ##ax.set_xticks([])
-                ##ax.set_yticks([])
-                ##ax.set_zticks([])
-                # ax.view_init(azim=0, elev=90)
-                # plt.show(block=True)
-                # quit()
-
-            elif len(kfrms) > 30:
-                oriented_imgs_batch.sort()
-                for img_id in oriented_imgs_batch:
-                    # print(img_id)
-                    img_name = inverted_img_dict[Id2name(img_id)]
-                    # Positions in Sdr of the reference img
-                    x = position_dict[img_name]["slamX"]
-                    y = position_dict[img_name]["slamY"]
-                    z = position_dict[img_name]["slamZ"]
-                    observation = np.array([[x], [y], [z]])
-                    scaled_observation = np.dot(R, observation) + t
-                    Xslam.append(scaled_observation[0, 0])
-                    Yslam.append(scaled_observation[1, 0])
-                    Zslam.append(scaled_observation[2, 0])
-
-                    if state_init == False:
-                        X1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
-                            "slamX"
-                        ]
-                        Y1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
-                            "slamY"
-                        ]
-                        Z1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
-                            "slamZ"
-                        ]
-                        X2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
-                            "slamX"
-                        ]
-                        Y2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
-                            "slamY"
-                        ]
-                        Z2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
-                            "slamZ"
-                        ]
-                        X_1 = np.array([[X1, Y1, Z1]]).T
-                        X_2 = np.array([[X2, Y2, Z2]]).T
-                        X_1 = np.dot(R, X_1) + t
-                        X_2 = np.dot(R, X_2) + t
-                        V = (X_2 - X_1) / T
-                        state_old = np.array(
-                            [
-                                [
-                                    X_2[0, 0],
-                                    X_2[1, 0],
-                                    X_2[2, 0],
-                                    V[0, 0],
-                                    V[1, 0],
-                                    V[2, 0],
-                                    1,
-                                ]
-                            ]
-                        ).T
-                        state_init = True
-                        P = covariance_mat.Pini()
-
-                    # Smooth with EKF
-                    # state_new, P_new, lambd = EKF.ExtendedKalmanFilter(state_old, P, covariance_mat.F(T), covariance_mat.Q(0.0009, 0.0001), scaled_observation, covariance_mat.R(0.1))
-                    state_new, P_new, lambd = EKF.ExtendedKalmanFilter(
-                        state_old,
-                        P,
-                        covariance_mat.F(T),
-                        covariance_mat.Q(0.0001, 0.000001),
-                        scaled_observation,
-                        covariance_mat.R(0.01),
-                    )
-
-                    Xkf.append(state_old[0, 0])
-                    Ykf.append(state_old[1, 0])
-                    Zkf.append(state_old[2, 0])
-                    state_old = state_new
-                    P = P_new
-                    # print("lambd", lambd)
-
-                    plt.ion()
-                    interactive(True)
-                    fig = plt.figure()
-                    ax = plt.axes(projection="3d")
-                    MIN = min([min(Xslam), min(Yslam), min(Zslam)])
-                    MAX = max([max(Xslam), max(Yslam), max(Zslam)])
-                    ax.cla()
-                    ax.scatter(Xslam, Yslam, Zslam, "black")
-                    ax.scatter(Xkf, Ykf, Zkf, "red")
-                    ax.set_title("c")
-                    # ax.set_xticks([])
-                    # ax.set_yticks([])
-                    # ax.set_zticks([])
-                    ax.view_init(azim=0, elev=90)
-                    plt.show(block=True)
-
-                    # predict new position with EKF (to calibrate scale factor so more accuracy on Q and less on R)
-                    # if GNSS present
-                    # Use the known prediction from slam and apply KF
-
-                    # Print scale factor
+        ## TEMPORANELY NOT DEVELOPED. KEEP ONLY_SLAM == True
+        #if ONLY_SLAM == False:
+        #    # INITIALIZATION SCALE FACTOR AND KALMAN FILTER
+        #    if len(kfrms) == 30:
+        #        # For images with both slam and gnss solution
+        #        # georeference slam with Helmert transformation
+        #        slam_coord = []
+        #        gnss_coord = []
+        #        for img in position_dict:
+        #            if position_dict[img]["enuX"] != "-":
+        #                gnss_coord.append(
+        #                    (
+        #                        position_dict[img]["enuX"],
+        #                        position_dict[img]["enuY"],
+        #                        position_dict[img]["enuZ"],
+        #                    )
+        #                )
+        #                slam_coord.append(
+        #                    (
+        #                        position_dict[img]["slamX"],
+        #                        position_dict[img]["slamY"],
+        #                        position_dict[img]["slamZ"],
+        #                    )
+        #                )
+        #        # print(slam_coord, gnss_coord)
+#
+        #        R, t, scale_factor = Helmert(slam_coord, gnss_coord, OS, DEBUG)
+        #        # print(R, t)
+#
+        #        # Store positions
+        #        slam_coord = []
+        #        for img in position_dict:
+        #            slam_coord.append(
+        #                (
+        #                    position_dict[img]["slamX"],
+        #                    position_dict[img]["slamY"],
+        #                    position_dict[img]["slamZ"],
+        #                )
+        #            )
+        #        for pos in slam_coord:
+        #            if pos[0] != "-":
+        #                pos = np.array([[pos[0]], [pos[1]], [pos[2]]])
+        #                scaled_pos = np.dot(R, pos) + t
+        #                Xslam.append(scaled_pos[0, 0])
+        #                Yslam.append(scaled_pos[1, 0])
+        #                Zslam.append(scaled_pos[2, 0])
+#
+        #        # plt.ion()
+        #        # interactive(True)
+        #        # fig = plt.figure()
+        #        # ax = plt.axes(projection ='3d')
+        #        # MIN = min([min(Xslam),min(Yslam),min(Zslam)])
+        #        # MAX = max([max(Xslam),max(Yslam),max(Zslam)])
+        #        # ax.cla()
+        #        # ax.scatter(Xslam, Yslam, Zslam, 'black')
+        #        # ax.set_title('c')
+        #        ##ax.set_xticks([])
+        #        ##ax.set_yticks([])
+        #        ##ax.set_zticks([])
+        #        # ax.view_init(azim=0, elev=90)
+        #        # plt.show(block=True)
+        #        # quit()
+#
+        #    elif len(kfrms) > 30:
+        #        oriented_imgs_batch.sort()
+        #        for img_id in oriented_imgs_batch:
+        #            # print(img_id)
+        #            img_name = inverted_img_dict[Id2name(img_id)]
+        #            # Positions in Sdr of the reference img
+        #            x = position_dict[img_name]["slamX"]
+        #            y = position_dict[img_name]["slamY"]
+        #            z = position_dict[img_name]["slamZ"]
+        #            observation = np.array([[x], [y], [z]])
+        #            scaled_observation = np.dot(R, observation) + t
+        #            Xslam.append(scaled_observation[0, 0])
+        #            Yslam.append(scaled_observation[1, 0])
+        #            Zslam.append(scaled_observation[2, 0])
+#
+        #            if state_init == False:
+        #                X1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
+        #                    "slamX"
+        #                ]
+        #                Y1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
+        #                    "slamY"
+        #                ]
+        #                Z1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
+        #                    "slamZ"
+        #                ]
+        #                X2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
+        #                    "slamX"
+        #                ]
+        #                Y2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
+        #                    "slamY"
+        #                ]
+        #                Z2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
+        #                    "slamZ"
+        #                ]
+        #                X_1 = np.array([[X1, Y1, Z1]]).T
+        #                X_2 = np.array([[X2, Y2, Z2]]).T
+        #                X_1 = np.dot(R, X_1) + t
+        #                X_2 = np.dot(R, X_2) + t
+        #                V = (X_2 - X_1) / T
+        #                state_old = np.array(
+        #                    [
+        #                        [
+        #                            X_2[0, 0],
+        #                            X_2[1, 0],
+        #                            X_2[2, 0],
+        #                            V[0, 0],
+        #                            V[1, 0],
+        #                            V[2, 0],
+        #                            1,
+        #                        ]
+        #                    ]
+        #                ).T
+        #                state_init = True
+        #                P = covariance_mat.Pini()
+#
+        #            # Smooth with EKF
+        #            # state_new, P_new, lambd = EKF.ExtendedKalmanFilter(state_old, P, covariance_mat.F(T), covariance_mat.Q(0.0009, 0.0001), scaled_observation, covariance_mat.R(0.1))
+        #            state_new, P_new, lambd = EKF.ExtendedKalmanFilter(
+        #                state_old,
+        #                P,
+        #                covariance_mat.F(T),
+        #                covariance_mat.Q(0.0001, 0.000001),
+        #                scaled_observation,
+        #                covariance_mat.R(0.01),
+        #            )
+#
+        #            Xkf.append(state_old[0, 0])
+        #            Ykf.append(state_old[1, 0])
+        #            Zkf.append(state_old[2, 0])
+        #            state_old = state_new
+        #            P = P_new
+        #            # print("lambd", lambd)
+#
+        #            plt.ion()
+        #            interactive(True)
+        #            fig = plt.figure()
+        #            ax = plt.axes(projection="3d")
+        #            MIN = min([min(Xslam), min(Yslam), min(Zslam)])
+        #            MAX = max([max(Xslam), max(Yslam), max(Zslam)])
+        #            ax.cla()
+        #            ax.scatter(Xslam, Yslam, Zslam, "black")
+        #            ax.scatter(Xkf, Ykf, Zkf, "red")
+        #            ax.set_title("c")
+        #            # ax.set_xticks([])
+        #            # ax.set_yticks([])
+        #            # ax.set_zticks([])
+        #            ax.view_init(azim=0, elev=90)
+        #            plt.show(block=True)
+#
+        #            # predict new position with EKF (to calibrate scale factor so more accuracy on Q and less on R)
+        #            # if GNSS present
+        #            # Use the known prediction from slam and apply KF
+#
+        #            # Print scale factor
 
         img_batch = []
         oriented_imgs_batch = []

@@ -1,6 +1,4 @@
-####
-#### Brute-Force with OpenCV2
-####
+import cv2
 
 def BrForce(des1, des2, check, matching_distance, crossCheck_bool, matching_strategy, print_debug = True, ratio_thresh=0.8):
     if check == 'without_Lowe_ratio_test' and matching_distance=='L2':
