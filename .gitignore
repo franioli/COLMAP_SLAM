@@ -4,6 +4,8 @@ imgs/
 colmap_imgs/
 outs/ 
 config.ini
+matches_plot/
+keyframes/
 
 # VScode
 # .vscode/
