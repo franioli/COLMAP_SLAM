@@ -172,6 +172,9 @@ def estimate_pose(
         - R (np.ndarray): A 3x3 rotation matrix.
         - t (np.ndarray): A 3x1 translation vector.
         - inliers (np.ndarray): A boolean array indicating which keypoints are inliers.
+
+    NOTE:
+        R, t make up a tuple that performs a change of basis from the first camera's coordinate system to the second camera's coordinate system. Therefore, if the first camera has its own exterior orientation with respect to a world reference system, R and t estimated can be as the components of the extrinsics matrix (transformation from world to camera) of the second camera (be careful, R,t are NOT the components of the pose matrix of the second camera, because they describe transformation from 'first camera's coordinate system to the second'!). See https://docs.opencv.org/3.4/d9/d0c/group__calib3d.html#gadb7d2dfcc184c1d2f496d8639f4371c0 for more info.
     """
     if len(kpts0) < 5:
         return None
@@ -196,6 +199,26 @@ def estimate_pose(
             best_num_inliers = n
             ret = (R, t[:, 0], mask.ravel() > 0)
     return ret
+
+
+def unit_vector(vector):
+    """Returns the unit vector of the vector."""
+    return vector / np.linalg.norm(vector)
+
+
+def angle_between(v1, v2):
+    """Returns the angle in radians between vectors 'v1' and 'v2'::
+
+    >>> angle_between((1, 0, 0), (0, 1, 0))
+    1.5707963267948966
+    >>> angle_between((1, 0, 0), (1, 0, 0))
+    0.0
+    >>> angle_between((1, 0, 0), (-1, 0, 0))
+    3.141592653589793
+    """
+    v1_u = unit_vector(v1)
+    v2_u = unit_vector(v2)
+    return np.arccos(np.clip(np.dot(v1_u, v2_u), -1.0, 1.0))
 
 
 class StaticRejection:
@@ -465,7 +488,7 @@ class StaticRejection:
                     thresh=2,
                 )
                 if ret is not None:
-                    R, t, valid = ret
+                    R1, t, valid = ret
                 else:
                     logging.warning(
                         f"Unable to compute relative orientation for image {self.cur_frame_path.name}."
@@ -476,7 +499,7 @@ class StaticRejection:
                         f"Frame {self.cur_frame_path.name} rejected: not enough inlier matches found ({n_matches}<{MIN_MATCHES})."
                     )
                     return False
-                angles_deg = np.rad2deg(np.array(euler_from_matrix(R)))
+                angles_deg = np.rad2deg(np.array(euler_from_matrix(R1)))
                 max_angle_deg = np.max(np.abs(angles_deg))
                 if max_angle_deg < MIN_POSE_ANGLE_DEG:
                     if self.verbose:
@@ -487,6 +510,22 @@ class StaticRejection:
             logging.info(
                 f"Keyframe selected: Median matching distance {median_match_dist:.2f} - Larger pose angle {max_angle_deg:.2f}."
             )
+
+            # ray angle
+            # v0 = np.ones((mkpts1.shape[0],3))
+            # v0[:,:2] = mkpts1
+            # v1 = np.ones((mkpts2.shape[0],3))
+            # v1[:,:2] = mkpts2
+            # v0 = np.concatenate((mkpts1[0, :].squeeze(), np.ones((1))))
+            # v1 = np.concatenate((mkpts2[0, :].squeeze(), np.ones((1))))
+            # v0 = np.array([378.,86.,1.])
+            # v1 = np.array([385.,84.,1.])
+            # # v1 = np.array([396., 100., 1.])
+            # K = self.K
+            # R0 = np.eye(3)
+            # ray_dir0 = np.linalg.inv(K @ R0) @ v0
+            # ray_dir1 = np.linalg.inv(K @ R1) @ v1
+            # ray_angle = angle_between(ray_dir0,ray_dir1)
 
             # Update last_key_features and copy keyframe to keyframe_dir
             self.last_keyframe_path = self.cur_frame_path

@@ -6,6 +6,7 @@ outs/
 config.ini
 matches_plot/
 keyframes/
+config.ini
 
 # VScode
 # .vscode/

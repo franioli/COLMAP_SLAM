@@ -19,7 +19,9 @@ def KeyframeSelection(
     IMGS_FROM_SERVER,
     KEYFRAMES_DIR,
     keyframes_list,
-    pointer, delta):
+    pointer, 
+    delta
+    ):
 
     if KFS_METHOD == 'local_features':
         local_feature = LocalFeatures.LocalFeatures([img1, img2], IMGS_FROM_SERVER, KFS_N_FEATURES, KFS_LOCAL_FEATURE)
@@ -46,6 +48,7 @@ def KeyframeSelection(
         median_match_dist = np.median(match_dist)
 
         ### Ransac to eliminate outliers
+        #TODO: move RANSAC to a separate function (and possible allow choises to use other method than ransac, eg. pydegensac, with same interface)
         rands = []
         scores = []
         for i in range(100):
@@ -58,9 +61,7 @@ def KeyframeSelection(
         max_consensus = rands[np.argmax(scores)]
         reference_distance = np.linalg.norm(mpts1[max_consensus] - mpts2[max_consensus])
         mask = np.absolute(match_dist - reference_distance) > RANSAC_THRESHOLD
-        rows_to_eliminate = np.where(mask)[0]
-        mpts1 = np.delete(mpts1, rows_to_eliminate, axis=0)
-        mpts2 = np.delete(mpts2, rows_to_eliminate, axis=0)
+      
 
         match_dist = np.linalg.norm(mpts1 - mpts2, axis=1)
         median_match_dist = np.median(match_dist)
