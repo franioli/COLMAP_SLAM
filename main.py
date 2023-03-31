@@ -8,6 +8,8 @@
 
 # TODO: FEATURES TO BE ADDED: restart when the reconstruction breaks
 
+# NOTE: install easydict as additional dependancy
+
 import configparser
 import os
 import shutil
@@ -51,8 +53,9 @@ CFG_FILE = "config.ini"
 # Import conf options
 # TODO: Move initialization class to new file
 # TODO: centralized all options in config.ini file and cfg dictionary
-# TODO: change parameter names to lowercase
+# TODO: change parameter names to lowercase (both in Inizialization class and main)
 # TODO: organize parameters in tree structure of dictionaries (or similar) to easily pass to function set of parameters
+# TODO: add checks on parameters
 class Inizialization:
     def __init__(self, cfg_file: str) -> None:
         self.cfg_file = cfg_file
@@ -200,8 +203,6 @@ if cfg.USE_EXTERNAL_CAM_COORD == True:
             id, x, y, z, _ = line.split(" ", 4)
             camera_coord_other_sensors[id] = (x, y, z)
 
-
-### MAIN LOOP
 # Stream of input data
 p = subprocess.Popen(["python3", "./plot.py"])
 if cfg.USE_SERVER == True:
@@ -209,19 +210,19 @@ if cfg.USE_SERVER == True:
 else:
     p = subprocess.Popen(["python3", "./simulator.py"])
 
+
+### MAIN LOOP
 for i in range(cfg.LOOP_CYCLES):
-    imgs = os.listdir(cfg.IMGS_FROM_SERVER)
+    # Get sorted image list available in imgs folders
+    imgs = sorted(cfg.IMGS_FROM_SERVER.glob(f"*.{cfg.IMG_FORMAT}"))
     img_batch = []
 
-    # Sort imgs
-    format_lenght = len(cfg.IMG_FORMAT)
-    imgs = sorted(imgs, key=lambda x: int(x[:-format_lenght]))
     newer_imgs = False  # To control that new keyframes are added
     processed = 0  # Number of processed images
 
     # Keyframe selection
     if len(imgs) < 2:
-        pass
+        continue
 
     elif len(imgs) >= 2:
         for c, img in enumerate(imgs):
@@ -229,81 +230,83 @@ for i in range(cfg.LOOP_CYCLES):
             # Only new images found in the target folder are processed.
             # No more than MAX_IMG_BATCH_SIZE imgs are processed.
             if (
-                img not in processed_imgs
-                and c >= 1
-                and processed < cfg.MAX_IMG_BATCH_SIZE
+                img in processed_imgs
+                and c < 1
+                and processed >= cfg.MAX_IMG_BATCH_SIZE
             ):
-                print()
-                print()
-                print("pointer", pointer, "c", c)
-                img1 = imgs[pointer]
-                img2 = img
-                start = time.time()
-                old_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
+                continue
+            
+            print()
+            print()
+            print("pointer", pointer, "c", c)
+            img1 = imgs[pointer]
+            img2 = img
+            start = time.time()
+            old_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
 
-                (
-                    keyframes_list,
-                    pointer,
-                    delta,
-                ) = keyframe_selection.KeyframeSelection(
-                    cfg.KFS_METHOD,
-                    cfg.KFS_LOCAL_FEATURE,
-                    cfg.KFS_N_FEATURES,
-                    img1,
-                    img2,
-                    cfg.IMGS_FROM_SERVER,
-                    cfg.KEYFRAMES_DIR,
-                    keyframes_list,
-                    pointer,
-                    delta,
-                )
+            (
+                keyframes_list,
+                pointer,
+                delta,
+            ) = keyframe_selection.KeyframeSelection(
+                cfg.KFS_METHOD,
+                cfg.KFS_LOCAL_FEATURE,
+                cfg.KFS_N_FEATURES,
+                img1,
+                img2,
+                cfg.IMGS_FROM_SERVER,
+                cfg.KEYFRAMES_DIR,
+                keyframes_list,
+                pointer,
+                delta,
+            )
 
-                # Set if new keyframes are added
-                new_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
-                if new_n_keyframes - old_n_keyframes > 0:
-                    newer_imgs = True
-                    img_batch.append(img)
-                    keyframe_obj = list(
-                        filter(lambda obj: obj.image_name == img, keyframes_list)
-                    )[0]
+            # Set if new keyframes are added
+            new_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
+            if new_n_keyframes - old_n_keyframes > 0:
+                newer_imgs = True
+                img_batch.append(img)
+                keyframe_obj = list(
+                    filter(lambda obj: obj.image_name == img, keyframes_list)
+                )[0]
 
-                    # Load exif data and store GNSS position if present
-                    # or load camera cooridnates from other sensors
-                    exif_data = []
-                    try:
-                        exif_data = piexif.load("{}/imgs/{}".format(os.getcwd(), img2))
-                    except:
-                        print("Error loading exif data. Image file could be corrupted.")
+                # Load exif data and store GNSS position if present
+                # or load camera cooridnates from other sensors
+                exif_data = []
+                try:
+                    exif_data = piexif.load("{}/imgs/{}".format(os.getcwd(), img2))
+                except:
+                    print("Error loading exif data. Image file could be corrupted.")
 
-                    if exif_data != [] and len(exif_data["GPS"].keys()) != 0:
-                        lat = exif_data["GPS"][2]
-                        long = exif_data["GPS"][4]
-                        alt = exif_data["GPS"][6]
-                        enuX, enuY, enuZ = ConvertGnssRefSystm.CovertGnssRefSystm(
-                            lat, long, alt
-                        )
-                        keyframe_obj.GPSLatitude = lat
-                        keyframe_obj.GPSLongitude = long
-                        keyframe_obj.GPSAltitude = alt
-                        keyframe_obj.enuX = enuX
-                        keyframe_obj.enuY = enuY
-                        keyframe_obj.enuZ = enuZ
+                if exif_data != [] and len(exif_data["GPS"].keys()) != 0:
+                    lat = exif_data["GPS"][2]
+                    long = exif_data["GPS"][4]
+                    alt = exif_data["GPS"][6]
+                    enuX, enuY, enuZ = ConvertGnssRefSystm.CovertGnssRefSystm(
+                        lat, long, alt
+                    )
+                    keyframe_obj.GPSLatitude = lat
+                    keyframe_obj.GPSLongitude = long
+                    keyframe_obj.GPSAltitude = alt
+                    keyframe_obj.enuX = enuX
+                    keyframe_obj.enuY = enuY
+                    keyframe_obj.enuZ = enuZ
 
-                    elif exif_data != [] and img2 in camera_coord_other_sensors.keys():
-                        print("img2", img2)
-                        enuX, enuY, enuZ = (
-                            camera_coord_other_sensors[img2][0],
-                            camera_coord_other_sensors[img2][1],
-                            camera_coord_other_sensors[img2][2],
-                        )
-                        keyframe_obj.enuX = enuX
-                        keyframe_obj.enuY = enuY
-                        keyframe_obj.enuZ = enuZ
+                elif exif_data != [] and img2 in camera_coord_other_sensors.keys():
+                    print("img2", img2)
+                    enuX, enuY, enuZ = (
+                        camera_coord_other_sensors[img2][0],
+                        camera_coord_other_sensors[img2][1],
+                        camera_coord_other_sensors[img2][2],
+                    )
+                    keyframe_obj.enuX = enuX
+                    keyframe_obj.enuY = enuY
+                    keyframe_obj.enuZ = enuZ
 
-                processed_imgs.append(img)
-                processed += 1
-                end = time.time()
-                print("STATIC CHECK {}s".format(end - start), end="\r")
+            processed_imgs.append(img)
+            processed += 1
+            end = time.time()
+            print("STATIC CHECK {}s".format(end - start), end="\r")
 
     # INCREMENTAL RECONSTRUCTION
     kfrms = os.listdir(cfg.KEYFRAMES_DIR)
