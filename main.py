@@ -11,18 +11,19 @@
 # NOTE: install easydict as additional dependancy
 
 import configparser
+import logging
 import os
+import pickle
 import shutil
 import subprocess
 import time
 from pathlib import Path
-import pickle
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import piexif
 from easydict import EasyDict as edict
-
 from matplotlib import interactive
 from mpl_toolkits import mplot3d
 from pyquaternion import quaternion
@@ -36,11 +37,11 @@ from lib import (
     covariance_mat,
     database,
     export_cameras,
-    static_rejection,
 )
-from lib.keyframes import KeyFrame, KeyFrameList
-from lib.utils import Helmert, Id2name
+from lib.initialization import Inizialization
 from lib.keyframe_selection import KeyFrameSelector
+from lib.keyframes import KeyFrame, KeyFrameList
+from lib.utils import AverageTimer, Helmert, Id2name
 
 ### OPTIONS FOR EKF - Development temporarily interrupted, do not change values
 T = 0.1
@@ -49,166 +50,22 @@ state_init = False
 # Configuration file
 CFG_FILE = "config.ini"
 
-
-# Import conf options
-# TODO: Move initialization class to new file
-# TODO: centralized all options in config.ini file and cfg dictionary
-# TODO: change parameter names to lowercase (both in Inizialization class and main)
-# TODO: organize parameters in tree structure of dictionaries (or similar) to easily pass to function set of parameters
-# TODO: add checks on parameters
-class Inizialization:
-    """Parse the configuration file and initialize the object's properties"""
-
-    def __init__(self, cfg_file: str) -> None:
-        """
-        Args:
-            cfg_file (str): Path to the configuration file
-        """
-        self.cfg_file = cfg_file
-
-    def parse_config_file(self) -> edict:
-        """
-        Parse the configuration file and store the values in a dictionary
-
-        Returns:
-            dict: A dictionary containing all the configuration options
-        """
-        config = configparser.ConfigParser()
-        config.read(self.cfg_file, encoding="utf-8")
-
-        cfg = edict({})
-
-        # DEFAULT
-        cfg.OS = config["DEFAULT"]["OS"]
-        cfg.USE_SERVER = config["DEFAULT"].getboolean("USE_SERVER")
-        cfg.LAUNCH_SERVER_PATH = Path(config["DEFAULT"]["LAUNCH_SERVER_PATH"])
-        cfg.DEBUG = config["DEFAULT"].getboolean("DEBUG")
-        cfg.MAX_IMG_BATCH_SIZE = int(config["DEFAULT"]["MAX_IMG_BATCH_SIZE"])
-        cfg.SLEEP_TIME = float(config["DEFAULT"]["SLEEP_TIME"])
-        cfg.LOOP_CYCLES = int(config["DEFAULT"]["LOOP_CYCLES"])
-        cfg.COLMAP_EXE_PATH = Path(config["DEFAULT"]["COLMAP_EXE_PATH"])
-        cfg.IMGS_FROM_SERVER = Path(
-            config["DEFAULT"]["IMGS_FROM_SERVER"]
-        )  # Path(r"/home/luca/Scrivania/3DOM/Github_lcmrl/Server_Connection/c++_send_images/imgs")
-        cfg.IMG_FORMAT = config["DEFAULT"]["IMG_FORMAT"]
-        cfg.MAX_N_FEATURES = int(config["DEFAULT"]["MAX_N_FEATURES"])
-        cfg.INITIAL_SEQUENTIAL_OVERLAP = int(
-            config["DEFAULT"]["INITIAL_SEQUENTIAL_OVERLAP"]
-        )
-        cfg.SEQUENTIAL_OVERLAP = cfg.INITIAL_SEQUENTIAL_OVERLAP
-        cfg.ONLY_SLAM = config["DEFAULT"].getboolean("ONLY_SLAM")
-        cfg.CUSTOM_FEATURES = config["DEFAULT"].getboolean("CUSTOM_FEATURES")
-        cfg.PATH_TO_LOCAL_FEATURES = Path(config["DEFAULT"]["PATH_TO_LOCAL_FEATURES"])
-        cfg.CUSTOM_DETECTOR = config["DEFAULT"]["CUSTOM_DETECTOR"]
-
-        # KEYFRAME_SELECTION
-        cfg.KFS_METHOD = config["KEYFRAME_SELECTION"]["METHOD"]
-        cfg.KFS_LOCAL_FEATURE = config["KEYFRAME_SELECTION"]["LOCAL_FEATURE"]
-        cfg.KFS_N_FEATURES = int(config["KEYFRAME_SELECTION"]["N_FEATURES"])
-
-        # EXTERNAL_SENSORS
-        cfg.USE_EXTERNAL_CAM_COORD = config["EXTERNAL_SENSORS"].getboolean(
-            "USE_EXTERNAL_CAM_COORD"
-        )
-        cfg.CAMERA_COORDINATES_FILE = Path(
-            config["EXTERNAL_SENSORS"]["CAMERA_COORDINATES_FILE"]
-        )
-
-        # INCREMENTAL_RECONSTRUCTION
-        cfg.MIN_KEYFRAME_FOR_INITIALIZATION = int(
-            config["INCREMENTAL_RECONSTRUCTION"]["MIN_KEYFRAME_FOR_INITIALIZATION"]
-        )
-        cfg.LOOP_CLOSURE_DETECTION = config["INCREMENTAL_RECONSTRUCTION"].getboolean(
-            "LOOP_CLOSURE_DETECTION"
-        )
-        cfg.VOCAB_TREE = config["INCREMENTAL_RECONSTRUCTION"]["VOCAB_TREE"]
-
-        self.cfg = cfg
-
-        return self.cfg
-
-    def get_colmap_path(self) -> str:
-        """
-        Get the path to the COLMAP executable based on the operating system
-
-        Returns:
-            str: The path to the COLMAP executable
-        """
-        OS = self.cfg.OS
-        assert OS in [
-            "windows",
-            "linux",
-        ], "Invalid OS. OS in conf.ini must be windows or linux"
-        if OS == "windows":
-            self.colmap_exe = "COLMAP.bat"
-        elif OS == "linux":
-            self.colmap_exe = "colmap"
-        return self.colmap_exe
-
-    def set_working_directory(self):
-        """
-        set_working_directory _summary_
-        """
-        self.cfg.CURRENT_DIR = Path(os.getcwd())
-        self.cfg.TEMP_DIR = self.cfg.CURRENT_DIR / "temp"
-        self.cfg.KEYFRAMES_DIR = self.cfg.CURRENT_DIR / "colmap_imgs"
-        self.cfg.OUT_FOLDER = self.cfg.CURRENT_DIR / "outs"
-        self.cfg.DATABASE = self.cfg.CURRENT_DIR / "outs" / "db.db"
-
-    def manage_output_folders(self) -> bool:
-        """
-        manage_output_folders _summary_
-
-        Returns:
-            bool: _description_
-        """
-        if not os.path.exists(self.cfg.TEMP_DIR):
-            os.makedirs(self.cfg.TEMP_DIR)
-            os.makedirs(self.cfg.TEMP_DIR / "pair")
-            os.makedirs(self.cfg.KEYFRAMES_DIR)
-            os.makedirs(self.cfg.OUT_FOLDER)
-        else:
-            shutil.rmtree(self.cfg.TEMP_DIR)
-            shutil.rmtree(self.cfg.KEYFRAMES_DIR)
-            shutil.rmtree(self.cfg.OUT_FOLDER)
-            os.makedirs(self.cfg.TEMP_DIR)
-            os.makedirs(self.cfg.TEMP_DIR / "pair")
-            os.makedirs(self.cfg.KEYFRAMES_DIR)
-            os.makedirs(self.cfg.OUT_FOLDER)
-
-        if not os.path.exists(self.cfg.IMGS_FROM_SERVER):
-            os.makedirs(self.cfg.IMGS_FROM_SERVER)
-        else:
-            shutil.rmtree(self.cfg.IMGS_FROM_SERVER)
-            os.makedirs(self.cfg.IMGS_FROM_SERVER)
-
-        if os.path.exists("./keyframes.pkl"):
-            os.remove("./keyframes.pkl")
-
-        return True
-
-    def inizialize(self) -> edict:
-        """
-        inizialize _summary_
-
-        Returns:
-            edict: _description_
-        """
-        self.parse_config_file()
-        self.set_working_directory()
-        self.get_colmap_path()
-        self.manage_output_folders()
-
-        return self.cfg
-
+# Setup logger (TODO: move this in Inizialization class)
+# TODO: use logger instead of print
+LOG_LEVEL = logging.INFO
+logging.basicConfig(
+    format="%(asctime)s | %(name)s | %(levelname)s: %(message)s",
+    level=LOG_LEVEL,
+)
+logger = logging.getLogger("ColmapSLAM")
 
 # Inizialize COLMAP SLAM problem
+# NOTE: Initialization class moved to a new file in lib
 init = Inizialization(CFG_FILE)
 cfg = init.inizialize()
 
-
 # Initialize variables
-keyframes_list = KeyFrameList()
+keyframes_list = []  # KeyFrameList()
 img_dict = (
     {}
 )  ############################################# it is used in feature extraction, maybe it can be eliminated
@@ -239,27 +96,11 @@ keyframe_selector = KeyFrameSelector(
     last_keyframe_delta=delta,
     keyframes_dir=cfg.KEYFRAMES_DIR,
     kfs_method=cfg.KFS_METHOD,
-    local_feature="ORB",  # cfg.KFS_LOCAL_FEATURE,
+    local_feature="ALIKE",  # cfg.KFS_LOCAL_FEATURE,
     local_feature_cfg=alike_cfg,
     n_features=cfg.KFS_N_FEATURES,
-    realtime_viz=False,
+    realtime_viz=True,
 )
-# (
-#     keyframes_list,
-#     pointer,
-#     delta,
-# ) = keyframe_selection.KeyframeSelection(
-#     KFS_METHOD,
-#     KFS_LOCAL_FEATURE,
-#     KFS_N_FEATURES,
-#     img1,
-#     img2,
-#     IMGS_FROM_SERVER,
-#     KEYFRAMES_DIR,
-#     keyframes_list,
-#     pointer,
-#     delta,
-# )
 
 # If the camera coordinates are known from other sensors than gnss,
 # they can be stores in camera_coord_other_sensors dictionary and used
@@ -293,9 +134,6 @@ for i in range(cfg.LOOP_CYCLES):
     if len(imgs) < 2:
         continue
 
-    if len(imgs) == 100:
-        break
-
     elif len(imgs) >= 2:
         for c, img in enumerate(imgs):
             # Decide if new images are valid to be added to the sequential matching
@@ -304,12 +142,12 @@ for i in range(cfg.LOOP_CYCLES):
             if img in processed_imgs or c < 1 or processed >= cfg.MAX_IMG_BATCH_SIZE:
                 continue
 
-            print()
-            print()
-            print("pointer", pointer, "c", c)
+            print("")
+            logger.info(f"pointer {pointer} c {c}")
             img1 = imgs[pointer]
             img2 = img
-            start = time.time()
+            timer = AverageTimer()
+
             old_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
 
             (
@@ -333,7 +171,9 @@ for i in range(cfg.LOOP_CYCLES):
                 try:
                     exif_data = piexif.load("{}/imgs/{}".format(os.getcwd(), img2))
                 except:
-                    print("Error loading exif data. Image file could be corrupted.")
+                    logger.error(
+                        "Error loading exif data. Image file could be corrupted."
+                    )
 
                 if exif_data != [] and len(exif_data["GPS"].keys()) != 0:
                     lat = exif_data["GPS"][2]
@@ -362,70 +202,66 @@ for i in range(cfg.LOOP_CYCLES):
 
             processed_imgs.append(img)
             processed += 1
-            end = time.time()
-            print(f"STATIC CHECK {end - start:.4}s")
+            timer.update("STATIC CHECK")
+            timer.print()
 
     # INCREMENTAL RECONSTRUCTION
     kfrms = os.listdir(cfg.KEYFRAMES_DIR)
     kfrms.sort()
 
     if len(kfrms) >= cfg.MIN_KEYFRAME_FOR_INITIALIZATION and newer_imgs == True:
-        start_loop = time.time()
+        timer_loop = AverageTimer(logger=logger)
+
+        timer = AverageTimer(logger=logger)
+
         print()
-        print(f"[LOOP : {i}]")
-        print(f"DYNAMIC MATCHING WINDOW: ", SEQUENTIAL_OVERLAP)
+        logger.info(f"[LOOP : {i}]")
+        logger.info(f"DYNAMIC MATCHING WINDOW: {cfg.SEQUENTIAL_OVERLAP}")
         print()
 
         # FIRST LOOP IN COLMAP - INITIALIZATION
         if ended_first_colmap_loop == False:
             if cfg.CUSTOM_FEATURES == False:
                 # Initialize an empty database
-                st_time = time.time()
                 if not os.path.exists(cfg.DATABASE):
                     subprocess.run(
                         [
-                            cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                            str(cfg.COLMAP_EXE_PATH),
                             "database_creator",
                             "--database_path",
                             cfg.DATABASE,
                         ],
                         stdout=subprocess.DEVNULL,
                     )
-                end_time = time.time()
-                print("DATABASE INITIALIZATION: ", end_time - st_time)
+                timer.update("DATABASE INITIALIZATION")
 
                 # Feature extraction
-                st_time = time.time()
                 p = subprocess.run(
                     [
-                        cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                        str(cfg.COLMAP_EXE_PATH),
                         "feature_extractor",
                         "--project_path",
                         cfg.CURRENT_DIR / "lib" / "sift_first_loop.ini",
                     ],
                     stdout=subprocess.DEVNULL,
                 )
-                end_time = time.time()
-                print("FEATURE EXTRACTION: ", end_time - st_time)
+                timer.update("FEATURE EXTRACTION")
 
             elif cfg.CUSTOM_FEATURES == True:
                 # Initialize an empty database
-                st_time = time.time()
                 if not os.path.exists(cfg.DATABASE):
                     subprocess.run(
                         [
-                            cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                            str(cfg.COLMAP_EXE_PATH),
                             "database_creator",
                             "--database_path",
                             cfg.DATABASE,
                         ],
                         stdout=subprocess.DEVNULL,
                     )
-                end_time = time.time()
-                print("DATABASE INITIALIZATION: ", end_time - st_time)
+                timer.update("DATABASE INITIALIZATION")
 
                 # Feature extraction
-                st_time = time.time()
                 ExtractCustomFeatures.ExtractCustomFeatures(
                     cfg.CUSTOM_DETECTOR,
                     cfg.PATH_TO_LOCAL_FEATURES,
@@ -433,42 +269,36 @@ for i in range(cfg.LOOP_CYCLES):
                     cfg.KEYFRAMES_DIR,
                     keyframes_list,
                 )
-                end_time = time.time()
-                print("FEATURE EXTRACTION: ", end_time - st_time)
+                timer.update("FEATURE EXTRACTION")
 
             # Sequential matcher
-            st_time = time.time()
             subprocess.run(
                 [
-                    cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                    str(cfg.COLMAP_EXE_PATH),
                     "sequential_matcher",
                     "--project_path",
                     cfg.CURRENT_DIR / "lib" / "matcher.ini",
                 ],
                 stdout=subprocess.DEVNULL,
             )
-            end_time = time.time()
-            print("SEQUENTIAL MATCHER: ", end_time - st_time)
+            timer.update("SEQUENTIAL MATCHER")
 
             # Triangulation and BA
-            st_time = time.time()
             subprocess.run(
                 [
-                    cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                    str(cfg.COLMAP_EXE_PATH),
                     "mapper",
                     "--project_path",
                     cfg.CURRENT_DIR / "lib" / "mapper_first_loop.ini",
                 ],
                 stdout=subprocess.DEVNULL,
             )
-            end_time = time.time()
-            print("MAPPER: ", end_time - st_time)
+            timer.update("MAPPER")
 
             # Convert model from binary to txt
-            st_time = time.time()
             subprocess.run(
                 [
-                    cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                    str(cfg.COLMAP_EXE_PATH),
                     "model_converter",
                     "--input_path",
                     cfg.OUT_FOLDER / "0",
@@ -479,8 +309,7 @@ for i in range(cfg.LOOP_CYCLES):
                 ],
                 stdout=subprocess.DEVNULL,
             )
-            end_time = time.time()
-            print("MODEL CONVERSION: ", end_time - st_time)
+            timer.update("MODEL CONVERSION")
 
             ended_first_colmap_loop = True
 
@@ -488,22 +317,19 @@ for i in range(cfg.LOOP_CYCLES):
         elif ended_first_colmap_loop == True:
             if cfg.CUSTOM_FEATURES == False:
                 # Feature extraction
-                st_time = time.time()
                 subprocess.call(
                     [
-                        cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                        str(cfg.COLMAP_EXE_PATH),
                         "feature_extractor",
                         "--project_path",
                         cfg.CURRENT_DIR / "lib" / "sift.ini",
                     ],
                     stdout=subprocess.DEVNULL,
                 )
-                end_time = time.time()
-                print("FEATURE EXTRACTION: ", end_time - st_time)
+                timer.update("FEATURE EXTRACTION")
 
             elif cfg.CUSTOM_FEATURES == True:
                 # Feature extraction
-                st_time = time.time()
                 ExtractCustomFeatures.ExtractCustomFeatures(
                     cfg.CUSTOM_DETECTOR,
                     cfg.PATH_TO_LOCAL_FEATURES,
@@ -511,17 +337,15 @@ for i in range(cfg.LOOP_CYCLES):
                     cfg.KEYFRAMES_DIR,
                     keyframes_list,
                 )
-                end_time = time.time()
-                print("FEATURE EXTRACTION: ", end_time - st_time)
+                timer.update("FEATURE EXTRACTION")
 
             # Sequential matcher
-            st_time = time.time()
             # p = subprocess.Popen([COLMAP_EXE_PATH / "colmap", "sequential_matcher", "--project_path", CURRENT_DIR / "lib" / "matcher.ini"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
             if cfg.LOOP_CLOSURE_DETECTION == False:
                 # Matching without loop closures (for all kind of local features)
                 p = subprocess.call(
                     [
-                        cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                        str(cfg.COLMAP_EXE_PATH),
                         "sequential_matcher",
                         "--database_path",
                         cfg.DATABASE,
@@ -536,7 +360,7 @@ for i in range(cfg.LOOP_CYCLES):
                 # Matching with loop closures (only for RootSIFT)
                 p = subprocess.call(
                     [
-                        cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                        str(cfg.COLMAP_EXE_PATH),
                         "sequential_matcher",
                         "--database_path",
                         cfg.DATABASE,
@@ -554,28 +378,25 @@ for i in range(cfg.LOOP_CYCLES):
             else:
                 print("Not compatible option for loop closure detection. Quit.")
                 quit()
-            end_time = time.time()
-            print("SEQUENTIAL MATCHER: ", end_time - st_time)
+            timer.update("SEQUENTIAL MATCHER")
 
             # Triangulation and BA
             st_time = time.time()
             subprocess.call(
                 [
-                    cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                    str(cfg.COLMAP_EXE_PATH),
                     "mapper",
                     "--project_path",
                     cfg.CURRENT_DIR / "lib" / "mapper.ini",
                 ],
                 stdout=subprocess.DEVNULL,
             )
-            end_time = time.time()
-            print("MAPPER: ", end_time - st_time)
+            timer.update("MAPPER")
 
             # Convert model from binary to txt
-            st_time = time.time()
             p = subprocess.call(
                 [
-                    cfg.COLMAP_EXE_PATH / f"{cfg.colmap_exe}",
+                    str(cfg.COLMAP_EXE_PATH),
                     "model_converter",
                     "--input_path",
                     cfg.OUT_FOLDER,
@@ -586,8 +407,9 @@ for i in range(cfg.LOOP_CYCLES):
                 ],
                 stdout=subprocess.DEVNULL,
             )
-            end_time = time.time()
-            print("MODEL CONVERSION: ", end_time - st_time)
+            timer.update("MODEL CONVERSION")
+
+            timer.print("COLMAP")
 
         # Export cameras
         lines, oriented_dict = export_cameras.ExportCameras(
@@ -866,7 +688,8 @@ for i in range(cfg.LOOP_CYCLES):
 
         img_batch = []
         oriented_imgs_batch = []
-        end_loop = time.time()
-        print("LOOP TIME {}s\n".format(end_loop - start_loop))
+
+        timer_loop.update("Loop time")
+        timer_loop.print()
 
     time.sleep(cfg.SLEEP_TIME)

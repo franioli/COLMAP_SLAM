@@ -21,16 +21,10 @@ from lib.thirdparty.alike.alike import ALike, configs
 INNOVATION_THRESH_PIX = 120  # 200
 MIN_MATCHES = 20
 RANSAC_THRESHOLD = 10
-RANSAC_ITERATIONS = 100
+RANSAC_ITERATIONS = 1000
 
 # TODO: use logger instead of print
-# TODO: set logger options in main
-LOG_LEVEL = logging.INFO
-logging.basicConfig(
-    format="%(asctime)s | %(name)s | %(levelname)s: %(message)s",
-    level=LOG_LEVEL,
-)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 
 # TODO: make ransac function independent from KeyFrameSelector class
@@ -69,7 +63,7 @@ def make_match_plot(
 class KeyFrameSelector:
     def __init__(
         self,
-        keyframes_list: KeyFrameList,
+        keyframes_list: List,  # KeyFrameList,
         last_keyframe_pointer: int,
         last_keyframe_delta: int,
         keyframes_dir: Union[str, Path] = "colmap_imgs",
@@ -222,21 +216,23 @@ class KeyFrameSelector:
             rands = []
             scores = []
             for i in range(RANSAC_ITERATIONS):
-                rand = random.randrange(0, len(self.mpts1[0]))
+                rand = random.randrange(0, self.mpts1.shape[0])
                 reference_distance = np.linalg.norm(self.mpts1[rand] - self.mpts2[rand])
                 score = np.sum(
                     np.absolute(match_dist - reference_distance) < RANSAC_THRESHOLD
                 ) / len(match_dist)
                 rands.append(rand)
                 scores.append(score)
-                max_consensus = rands[np.argmax(scores)]
-                reference_distance = np.linalg.norm(
-                    self.mpts1[max_consensus] - self.mpts2[max_consensus]
-                )
-                mask = np.absolute(match_dist - reference_distance) > RANSAC_THRESHOLD
-
-                match_dist = np.linalg.norm(self.mpts1[mask,:] - self.mpts2[mask,:], axis=1)
-            # logger.info("ransac rsults: ...")
+            max_consensus = rands[np.argmax(scores)]
+            reference_distance = np.linalg.norm(
+                self.mpts1[max_consensus] - self.mpts2[max_consensus]
+            )
+            mask = np.absolute(match_dist - reference_distance) > RANSAC_THRESHOLD
+            logger.info(
+                f"Ransac found {len(list(filter(None, mask)))}/{len(mask)} inliers"
+            )
+            self.mpts1 = self.mpts1[mask, :]
+            self.mpts2 = self.mpts2[mask, :]
         else:
             # Here we can implement other methods
             logger.error("Error! Only ransac method is implemented")
@@ -249,6 +245,13 @@ class KeyFrameSelector:
         match_dist = np.linalg.norm(self.mpts1 - self.mpts2, axis=1)
         median_match_dist = np.median(match_dist)
         logger.info(f"median_match_dist: {median_match_dist:.2f}")
+
+        if len(self.mpts1) < MIN_MATCHES:
+            logger.info("Frame rejected: not enogh matches")
+            self.delta += 1
+            self.timer.update("innovation check")
+
+            return False
 
         if median_match_dist > INNOVATION_THRESH_PIX:
             existing_keyframe_number = len(os.listdir(self.keyframes_dir))
@@ -264,7 +267,8 @@ class KeyFrameSelector:
                 camera_id,
                 self.pointer + self.delta + 1,
             )
-            self.keyframes_list.add_keyframe(new_keyframe)
+            # self.keyframes_list.add_keyframe(new_keyframe)
+            self.keyframes_list.append(new_keyframe)
             logger.info(
                 f"Frame accepted. New_keyframe image_id: {new_keyframe.image_id}"
             )
@@ -290,8 +294,8 @@ class KeyFrameSelector:
         keyframe_accepted = self.innovation_check()
 
         if self.realtime_viz:
-            img1 = cv2.imread(str(self.img1))
-            match_img = make_match_plot(img1, self.mpts1, self.mpts2)
+            img = cv2.imread(str(self.img2))
+            match_img = make_match_plot(img, self.mpts1, self.mpts2)
             if keyframe_accepted:
                 win_name = self.method + ": Keyframe accepted"
             else:
@@ -406,6 +410,24 @@ if __name__ == "__main__":
     pointer = 0  # pointer points to the last oriented image
     delta = 0  # delta is equal to the number of processed but not oriented imgs
 
+    timer = utils.AverageTimer()
+
+    # Test ORB
+    kfs = KeyFrameSelector(
+        keyframes_list=keyframes_list,
+        last_keyframe_pointer=pointer,
+        last_keyframe_delta=delta,
+        local_feature="ORB",
+        realtime_viz=False,
+    )
+    (
+        keyframes_list,
+        pointer,
+        delta,
+    ) = kfs.run(img0, img1)
+    timer.update("orb")
+
+    # Test ALIKE
     alike_cfg = edict(
         {
             "model": "alike-t",
@@ -420,30 +442,18 @@ if __name__ == "__main__":
         keyframes_list=keyframes_list,
         last_keyframe_pointer=pointer,
         last_keyframe_delta=delta,
-        keyframes_dir=Path("keyframes"),
         local_feature="ALIKE",
         local_feature_cfg=alike_cfg,
         realtime_viz=False,
     )
-    timer = utils.AverageTimer()
+    (
+        keyframes_list,
+        pointer,
+        delta,
+    ) = kfs.run(img0, img1)
+    timer.update("alike")
 
-    for i in range(10):
-        (
-            keyframes_list,
-            pointer,
-            delta,
-        ) = kfs.run(img0, img1)
-        timer.update("alike")
-
-        kfs.local_feature = "ORB"
-        (
-            keyframes_list,
-            pointer,
-            delta,
-        ) = kfs.run(img0, img1)
-        timer.update("orb")
-
-        timer.print()
+    timer.print()
 
     # cv2.destroyAllWindows()
 
