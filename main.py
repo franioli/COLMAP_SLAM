@@ -57,10 +57,22 @@ CFG_FILE = "config.ini"
 # TODO: organize parameters in tree structure of dictionaries (or similar) to easily pass to function set of parameters
 # TODO: add checks on parameters
 class Inizialization:
+    """Parse the configuration file and initialize the object's properties"""
+
     def __init__(self, cfg_file: str) -> None:
+        """
+        Args:
+            cfg_file (str): Path to the configuration file
+        """
         self.cfg_file = cfg_file
 
     def parse_config_file(self) -> edict:
+        """
+        Parse the configuration file and store the values in a dictionary
+
+        Returns:
+            dict: A dictionary containing all the configuration options
+        """
         config = configparser.ConfigParser()
         config.read(self.cfg_file, encoding="utf-8")
 
@@ -116,6 +128,12 @@ class Inizialization:
         return self.cfg
 
     def get_colmap_path(self) -> str:
+        """
+        get_colmap_path _summary_
+
+        Returns:
+            str: _description_
+        """
         OS = self.cfg.OS
         assert OS in [
             "windows",
@@ -128,7 +146,9 @@ class Inizialization:
         return self.colmap_exe
 
     def set_working_directory(self):
-        # Working directories
+        """
+        set_working_directory _summary_
+        """
         self.cfg.CURRENT_DIR = Path(os.getcwd())
         self.cfg.TEMP_DIR = self.cfg.CURRENT_DIR / "temp"
         self.cfg.KEYFRAMES_DIR = self.cfg.CURRENT_DIR / "colmap_imgs"
@@ -136,7 +156,12 @@ class Inizialization:
         self.cfg.DATABASE = self.cfg.CURRENT_DIR / "outs" / "db.db"
 
     def manage_output_folders(self) -> bool:
-        # Manage output folders
+        """
+        manage_output_folders _summary_
+
+        Returns:
+            bool: _description_
+        """
         if not os.path.exists(self.cfg.TEMP_DIR):
             os.makedirs(self.cfg.TEMP_DIR)
             os.makedirs(self.cfg.TEMP_DIR / "pair")
@@ -163,6 +188,12 @@ class Inizialization:
         return True
 
     def inizialize(self) -> edict:
+        """
+        inizialize _summary_
+
+        Returns:
+            edict: _description_
+        """
         self.parse_config_file()
         self.set_working_directory()
         self.get_colmap_path()
@@ -229,13 +260,9 @@ for i in range(cfg.LOOP_CYCLES):
             # Decide if new images are valid to be added to the sequential matching
             # Only new images found in the target folder are processed.
             # No more than MAX_IMG_BATCH_SIZE imgs are processed.
-            if (
-                img in processed_imgs
-                and c < 1
-                and processed >= cfg.MAX_IMG_BATCH_SIZE
-            ):
+            if img in processed_imgs or c < 1 or processed >= cfg.MAX_IMG_BATCH_SIZE:
                 continue
-            
+
             print()
             print()
             print("pointer", pointer, "c", c)
@@ -254,7 +281,6 @@ for i in range(cfg.LOOP_CYCLES):
                 cfg.KFS_N_FEATURES,
                 img1,
                 img2,
-                cfg.IMGS_FROM_SERVER,
                 cfg.KEYFRAMES_DIR,
                 keyframes_list,
                 pointer,
