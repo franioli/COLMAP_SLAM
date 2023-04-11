@@ -500,9 +500,10 @@ for i in range(cfg.LOOP_CYCLES):
 
         # Apply rotantion matrix to move the updated photogrammetric model to the first model reference system
         for keyframe_id in oriented_dict_list:
-            keyframe_obj = list(
-                filter(lambda obj: obj.keyframe_id == keyframe_id, keyframes_list)
-            )[0]
+            keyframe_obj = keyframes_list.get_keyframe_by_id(keyframe_id)
+            # keyframe_obj = list(
+            #     filter(lambda obj: obj.keyframe_id == keyframe_id, keyframes_list)
+            # )[0]
             # keyframe_obj = [obj for obj in keyframes_list if obj.keyframe_id == keyframe_id][0]
             img_name = keyframe_obj.image_name
 

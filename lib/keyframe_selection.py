@@ -82,7 +82,7 @@ class KeyFrameSelector:
 
         self.realtime_viz = realtime_viz
         if self.realtime_viz:
-            cv2.namedWindow(self.method)
+            cv2.namedWindow("Keyframe Selection")
 
         if viz_res_path is not None:
             self.viz_res_path = Path(viz_res_path)
@@ -104,6 +104,7 @@ class KeyFrameSelector:
         self.desc2 = None
         self.mpts1 = None
         self.mpts2 = None
+        self.median_match_dist = None
 
         # Set initial pointer and delta
         self.pointer = last_keyframe_pointer
@@ -130,6 +131,7 @@ class KeyFrameSelector:
         self.desc2 = None
         self.mpts1 = None
         self.mpts2 = None
+        self.median_match_dist = None
 
     def extract_features(self, img1: Union[str, Path], img2: Union[str, Path]) -> bool:
         self.img1 = Path(img1)
@@ -225,8 +227,8 @@ class KeyFrameSelector:
 
     def innovation_check(self) -> bool:
         match_dist = np.linalg.norm(self.mpts1 - self.mpts2, axis=1)
-        median_match_dist = np.median(match_dist)
-        logger.info(f"median_match_dist: {median_match_dist:.2f}")
+        self.median_match_dist = np.median(match_dist)
+        logger.info(f"median_match_dist: {self.median_match_dist:.2f}")
 
         if len(self.mpts1) < MIN_MATCHES:
             logger.info("Frame rejected: not enogh matches")
@@ -235,7 +237,7 @@ class KeyFrameSelector:
 
             return False
 
-        if median_match_dist > INNOVATION_THRESH_PIX:
+        if self.median_match_dist > INNOVATION_THRESH_PIX:
             existing_keyframe_number = len(os.listdir(self.keyframes_dir))
             shutil.copy(
                 self.img2,
@@ -280,107 +282,108 @@ class KeyFrameSelector:
                 cv2.imwrite(str(self.viz_res_path / self.img2.name), self.match_img)
             if self.realtime_viz:
                 if keyframe_accepted:
-                    win_name = self.method + ": Keyframe accepted"
+                    win_name = f"{self.local_feature} - MMD {self.median_match_dist:.2f}: Keyframe accepted"
                 else:
-                    win_name = self.method + ": Frame rejected"
-                cv2.setWindowTitle(self.method, win_name)
-                cv2.imshow(self.method, self.match_img)
+                    win_name = f"{self.local_feature} - MMD {self.median_match_dist:.2f}: Frame rejected"
+                cv2.setWindowTitle("Keyframe Selection", win_name)
+                cv2.imshow("Keyframe Selection", self.match_img)
                 if cv2.waitKey(1) == ord("q"):
                     sys.exit()
 
         self.clear_matches()
+
         if self.verbose:
             self.timer.print()
 
         return self.keyframes_list, self.pointer, self.delta
 
 
-def KeyframeSelection(
-    KFS_METHOD,
-    KFS_LOCAL_FEATURE,
-    KFS_N_FEATURES,
-    img1,
-    img2,
-    KEYFRAMES_DIR,
-    keyframes_list,
-    pointer,
-    delta,
-):
-    if KFS_METHOD == "local_features":
-        local_feature = LocalFeatures([img1, img2], KFS_N_FEATURES, KFS_LOCAL_FEATURE)
-        if KFS_LOCAL_FEATURE == "ORB":
-            all_keypoints, all_descriptors = local_feature.ORB()
-        elif KFS_LOCAL_FEATURE == "ALIKE":
-            print("TO BE IMPLEMENTED")
+# def KeyframeSelection(
+#     KFS_METHOD,
+#     KFS_LOCAL_FEATURE,
+#     KFS_N_FEATURES,
+#     img1,
+#     img2,
+#     KEYFRAMES_DIR,
+#     keyframes_list,
+#     pointer,
+#     delta,
+# ):
+#     if KFS_METHOD == "local_features":
+#         local_feature = LocalFeatures([img1, img2], KFS_N_FEATURES, KFS_LOCAL_FEATURE)
+#         if KFS_LOCAL_FEATURE == "ORB":
+#             all_keypoints, all_descriptors = local_feature.ORB()
+#         elif KFS_LOCAL_FEATURE == "ALIKE":
+#             print("TO BE IMPLEMENTED")
 
-        desc1 = all_descriptors[0]
-        desc2 = all_descriptors[1]
-        kpts1 = all_keypoints[0]
-        kpts2 = all_keypoints[1]
+#         desc1 = all_descriptors[0]
+#         desc2 = all_descriptors[1]
+#         kpts1 = all_keypoints[0]
+#         kpts2 = all_keypoints[1]
 
-        matcher = Matcher(desc1, desc2)
-        # Here we should handle that we can use different kinds of matcher (also adding the option in config file)
-        matches = matcher.mnn_matcher_cosine()
-        matches_im1 = matches[:, 0]
-        matches_im2 = matches[:, 1]
+#         matcher = Matcher(desc1, desc2)
+#         # Here we should handle that we can use different kinds of matcher (also adding the option in config file)
+#         matches = matcher.mnn_matcher_cosine()
+#         matches_im1 = matches[:, 0]
+#         matches_im2 = matches[:, 1]
 
-        mpts1 = kpts1[matches_im1]
-        mpts2 = kpts2[matches_im2]
+#         mpts1 = kpts1[matches_im1]
+#         mpts2 = kpts2[matches_im2]
 
-        match_dist = np.linalg.norm(mpts1 - mpts2, axis=1)
-        median_match_dist = np.median(match_dist)
+#         match_dist = np.linalg.norm(mpts1 - mpts2, axis=1)
+#         median_match_dist = np.median(match_dist)
 
-        ### Ransac to eliminate outliers
-        # TODO: move RANSAC to a separate function (and possible allow choises to use other method than ransac, eg. pydegensac, with same interface)
-        rands = []
-        scores = []
-        for i in range(100):
-            rand = random.randrange(0, len(mpts1[0]))
-            reference_distance = np.linalg.norm(mpts1[rand] - mpts2[rand])
-            score = np.sum(
-                np.absolute(match_dist - reference_distance) < RANSAC_THRESHOLD
-            ) / len(match_dist)
-            rands.append(rand)
-            scores.append(score)
+#         ### Ransac to eliminate outliers
+#         # TODO: move RANSAC to a separate function (and possible allow choises to use other method than ransac, eg. pydegensac, with same interface)
+#         rands = []
+#         scores = []
+#         for i in range(100):
+#             rand = random.randrange(0, len(mpts1[0]))
+#             reference_distance = np.linalg.norm(mpts1[rand] - mpts2[rand])
+#             score = np.sum(
+#                 np.absolute(match_dist - reference_distance) < RANSAC_THRESHOLD
+#             ) / len(match_dist)
+#             rands.append(rand)
+#             scores.append(score)
 
-        max_consensus = rands[np.argmax(scores)]
-        reference_distance = np.linalg.norm(mpts1[max_consensus] - mpts2[max_consensus])
-        mask = np.absolute(match_dist - reference_distance) > RANSAC_THRESHOLD
+#         max_consensus = rands[np.argmax(scores)]
+#         reference_distance = np.linalg.norm(mpts1[max_consensus] - mpts2[max_consensus])
+#         mask = np.absolute(match_dist - reference_distance) > RANSAC_THRESHOLD
 
-        match_dist = np.linalg.norm(mpts1 - mpts2, axis=1)
-        median_match_dist = np.median(match_dist)
-        print("median_match_dist", median_match_dist)
+#         match_dist = np.linalg.norm(mpts1 - mpts2, axis=1)
+#         median_match_dist = np.median(match_dist)
+#         print("median_match_dist", median_match_dist)
 
-        if median_match_dist > INNOVATION_THRESH_PIX:
-            existing_keyframe_number = len(os.listdir(KEYFRAMES_DIR))
-            shutil.copy(
-                img2,
-                KEYFRAMES_DIR / f"{utils.Id2name(existing_keyframe_number)}",
-            )
-            camera_id = 1
-            new_keyframe = KeyFrame(
-                img2,
-                existing_keyframe_number,
-                utils.Id2name(existing_keyframe_number),
-                camera_id,
-                pointer + delta + 1,
-            )
-            keyframes_list.append(new_keyframe)
-            print("new_keyframe.image_id", new_keyframe.image_id)
+#         if median_match_dist > INNOVATION_THRESH_PIX:
+#             existing_keyframe_number = len(os.listdir(KEYFRAMES_DIR))
+#             shutil.copy(
+#                 img2,
+#                 KEYFRAMES_DIR / f"{utils.Id2name(existing_keyframe_number)}",
+#             )
+#             camera_id = 1
+#             new_keyframe = KeyFrame(
+#                 img2,
+#                 existing_keyframe_number,
+#                 utils.Id2name(existing_keyframe_number),
+#                 camera_id,
+#                 pointer + delta + 1,
+#             )
+#             keyframes_list.append(new_keyframe)
+#             print("new_keyframe.image_id", new_keyframe.image_id)
 
-            pointer += 1 + delta
-            delta = 0
+#             pointer += 1 + delta
+#             delta = 0
 
-        else:
-            print("Frame rejected")
-            delta += 1
+#         else:
+#             print("Frame rejected")
+#             delta += 1
 
-    else:
-        # Here we can implement methods like LoFTR
-        print("Error! Only local_features method is implemented")
-        quit()
+#     else:
+#         # Here we can implement methods like LoFTR
+#         print("Error! Only local_features method is implemented")
+#         quit()
 
-    return keyframes_list, pointer, delta
+#     return keyframes_list, pointer, delta
 
 
 if __name__ == "__main__":
