@@ -34,31 +34,6 @@ def ransac(
     pass
 
 
-# TODO: implement this as a method of LocalFeatures class
-def make_match_plot(
-    img: np.ndarray, mpts1: np.ndarray, mpts2: np.ndarray
-) -> np.ndarray:
-    """
-    Generates a visualization of the matched points.
-
-    Args:
-        img (numpy.ndarray): Current image.
-        mpts1 (numpy.ndarray): Matched points from the previous frame.
-        mpts2 (numpy.ndarray): Matched points from the current frame.
-
-    Returns:
-        numpy.ndarray: An image showing the matched points.
-
-    """
-    match_img = deepcopy(img)
-    for pt1, pt2 in zip(mpts1, mpts2):
-        p1 = (int(round(pt1[0])), int(round(pt1[1])))
-        p2 = (int(round(pt2[0])), int(round(pt2[1])))
-        cv2.line(match_img, p1, p2, (0, 255, 0), lineType=16)
-        cv2.circle(match_img, p2, 1, (0, 0, 255), -1, lineType=16)
-    return match_img
-
-
 # TODO: integrate ALike in LocalFeatures (see self.extract_features() method)
 class KeyFrameSelector:
     def __init__(
@@ -120,6 +95,7 @@ class KeyFrameSelector:
         # Set initial images to None
         self.img1 = None
         self.img2 = None
+        self.match_img = None
 
         # Set initial keyframes, descr, mpts to None
         self.kpts1 = None
@@ -205,6 +181,10 @@ class KeyFrameSelector:
             matches_im2 = matches[:, 1]
             self.mpts1 = self.kpts1[matches_im1]
             self.mpts2 = self.kpts2[matches_im2]
+
+            if self.realtime_viz is True or self.viz_res_path is not None:
+                img = cv2.imread(str(self.img2))
+                self.match_img = matcher.make_plot(img, self.mpts1, self.mpts2)
 
         else:
             # Here we can implement matching methods
@@ -295,17 +275,18 @@ class KeyFrameSelector:
             raise RuntimeError("Error in match_features")
         keyframe_accepted = self.innovation_check()
 
-        if self.realtime_viz:
-            img = cv2.imread(str(self.img2))
-            match_img = make_match_plot(img, self.mpts1, self.mpts2)
-            if keyframe_accepted:
-                win_name = self.method + ": Keyframe accepted"
-            else:
-                win_name = self.method + ": Frame rejected"
-            cv2.setWindowTitle(self.method, win_name)
-            cv2.imshow(self.method, match_img)
-            if cv2.waitKey(1) == ord("q"):
-                sys.exit()
+        if self.match_img is not None:
+            if self.viz_res_path is not None:
+                cv2.imwrite(str(self.viz_res_path / self.img2.name), self.match_img)
+            if self.realtime_viz:
+                if keyframe_accepted:
+                    win_name = self.method + ": Keyframe accepted"
+                else:
+                    win_name = self.method + ": Frame rejected"
+                cv2.setWindowTitle(self.method, win_name)
+                cv2.imshow(self.method, self.match_img)
+                if cv2.waitKey(1) == ord("q"):
+                    sys.exit()
 
         self.clear_matches()
         if self.verbose:

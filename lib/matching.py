@@ -2,7 +2,8 @@ import numpy as np
 import cv2
 from copy import deepcopy
 
-class Matcher():
+
+class Matcher:
     def __init__(
         self,
         desc1: np.ndarray,
@@ -10,7 +11,6 @@ class Matcher():
     ):
         self.desc1 = desc1 / np.linalg.norm(desc1, axis=1, keepdims=True)
         self.desc2 = desc2 / np.linalg.norm(desc2, axis=1, keepdims=True)
-
 
     def mnn_matcher_cosine(self) -> np.ndarray:
         """
@@ -28,10 +28,9 @@ class Matcher():
         ids1 = np.arange(0, sim.shape[0])
         mask = ids1 == nn21[nn12]
         matches = np.stack([ids1[mask], nn12[mask]])
-        #matches = np.stack([ids1, nn12])
+        # matches = np.stack([ids1, nn12])
 
         return matches.transpose()
-
 
     def make_plot(
         self, img: np.ndarray, mpts1: np.ndarray, mpts2: np.ndarray
@@ -45,11 +44,11 @@ class Matcher():
         Returns:
             numpy.ndarray: An image showing the matched points.
         """
-        match_fig = deepcopy(img)
+        match_img = deepcopy(img)
         for pt1, pt2 in zip(mpts1, mpts2):
             p1 = (int(round(pt1[0])), int(round(pt1[1])))
             p2 = (int(round(pt2[0])), int(round(pt2[1])))
-            cv2.line(match_fig, p1, p2, (0, 255, 0), lineType=16)
-            cv2.circle(match_fig, p2, 1, (0, 0, 255), -1, lineType=16)
+            cv2.line(match_img, p1, p2, (0, 255, 0), lineType=16)
+            cv2.circle(match_img, p2, 1, (0, 0, 255), -1, lineType=16)
 
-        return match_fig
+        return match_img

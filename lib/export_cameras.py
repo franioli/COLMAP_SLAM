@@ -21,7 +21,7 @@ def ExportCameras(external_cameras_path, keyframes_list):
                     " ", 9
                 )
 
-                keyframe_obj = keyframes_list.get_keyframe_by_image_name(name)
+                keyframe_obj = keyframes_list.get_keyframe_by_name(name)
                 # keyframe_obj = list(filter(lambda obj: obj.keyframe_name == name, keyframes_list))[0]
                 q = np.array([float(qw), float(qx), float(qy), float(qz)])
                 t = np.array([[float(tx)], [float(ty)], [float(tz)]])
