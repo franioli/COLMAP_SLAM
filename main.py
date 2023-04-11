@@ -37,11 +37,10 @@ from lib import (
     database,
     export_cameras,
     static_rejection,
-    keyframe_selection,
 )
 from lib.keyframes import KeyFrame, KeyFrameList
 from lib.utils import Helmert, Id2name
-
+from lib.keyframe_selection import KeyFrameSelector
 
 ### OPTIONS FOR EKF - Development temporarily interrupted, do not change values
 T = 0.1
@@ -223,6 +222,44 @@ one_time = False  # It becomes true after the first batch of images is oriented
 # At following epochs the photogrammetric model will be reported in this ref system.
 reference_imgs = []
 
+# Setup keyframe selector
+alike_cfg = edict(
+    {
+        "model": "alike-t",
+        "device": "cuda",
+        "top_k": cfg.KFS_N_FEATURES,  # -1
+        "scores_th": 0.2,
+        "n_limit": 5000,
+        "subpixel": False,
+    }
+)
+keyframe_selector = KeyFrameSelector(
+    keyframes_list=keyframes_list,
+    last_keyframe_pointer=pointer,
+    last_keyframe_delta=delta,
+    keyframes_dir=cfg.KEYFRAMES_DIR,
+    kfs_method=cfg.KFS_METHOD,
+    local_feature="ORB",  # cfg.KFS_LOCAL_FEATURE,
+    local_feature_cfg=alike_cfg,
+    n_features=cfg.KFS_N_FEATURES,
+    realtime_viz=False,
+)
+# (
+#     keyframes_list,
+#     pointer,
+#     delta,
+# ) = keyframe_selection.KeyframeSelection(
+#     KFS_METHOD,
+#     KFS_LOCAL_FEATURE,
+#     KFS_N_FEATURES,
+#     img1,
+#     img2,
+#     IMGS_FROM_SERVER,
+#     KEYFRAMES_DIR,
+#     keyframes_list,
+#     pointer,
+#     delta,
+# )
 
 # If the camera coordinates are known from other sensors than gnss,
 # they can be stores in camera_coord_other_sensors dictionary and used
@@ -256,6 +293,9 @@ for i in range(cfg.LOOP_CYCLES):
     if len(imgs) < 2:
         continue
 
+    if len(imgs) == 100:
+        break
+
     elif len(imgs) >= 2:
         for c, img in enumerate(imgs):
             # Decide if new images are valid to be added to the sequential matching
@@ -276,17 +316,7 @@ for i in range(cfg.LOOP_CYCLES):
                 keyframes_list,
                 pointer,
                 delta,
-            ) = keyframe_selection.KeyframeSelection(
-                cfg.KFS_METHOD,
-                cfg.KFS_LOCAL_FEATURE,
-                cfg.KFS_N_FEATURES,
-                img1,
-                img2,
-                cfg.KEYFRAMES_DIR,
-                keyframes_list,
-                pointer,
-                delta,
-            )
+            ) = keyframe_selector.run(img1, img2)
 
             # Set if new keyframes are added
             new_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
@@ -333,7 +363,7 @@ for i in range(cfg.LOOP_CYCLES):
             processed_imgs.append(img)
             processed += 1
             end = time.time()
-            print("STATIC CHECK {}s".format(end - start), end="\r")
+            print(f"STATIC CHECK {end - start:.4}s")
 
     # INCREMENTAL RECONSTRUCTION
     kfrms = os.listdir(cfg.KEYFRAMES_DIR)
