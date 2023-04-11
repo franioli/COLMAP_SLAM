@@ -65,7 +65,7 @@ init = Inizialization(CFG_FILE)
 cfg = init.inizialize()
 
 # Initialize variables
-keyframes_list = []  # KeyFrameList()
+keyframes_list = KeyFrameList()  # []  #
 img_dict = (
     {}
 )  ############################################# it is used in feature extraction, maybe it can be eliminated
@@ -144,9 +144,10 @@ for i in range(cfg.LOOP_CYCLES):
 
             print("")
             logger.info(f"pointer {pointer} c {c}")
+            timer_kfs = AverageTimer(logger=logger)
+
             img1 = imgs[pointer]
             img2 = img
-            timer = AverageTimer()
 
             old_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
 
@@ -161,9 +162,10 @@ for i in range(cfg.LOOP_CYCLES):
             if new_n_keyframes - old_n_keyframes > 0:
                 newer_imgs = True
                 img_batch.append(img)
-                keyframe_obj = list(
-                    filter(lambda obj: obj.image_name == img, keyframes_list)
-                )[0]
+                keyframe_obj = keyframes_list.get_keyframe_by_image_name(img)
+                # keyframe_obj = list(
+                #     filter(lambda obj: obj.image_name == img, keyframes_list)
+                # )[0]
 
                 # Load exif data and store GNSS position if present
                 # or load camera cooridnates from other sensors
@@ -202,8 +204,8 @@ for i in range(cfg.LOOP_CYCLES):
 
             processed_imgs.append(img)
             processed += 1
-            timer.update("STATIC CHECK")
-            timer.print()
+            timer_kfs.update("STATIC CHECK")
+            timer_kfs.print()
 
     # INCREMENTAL RECONSTRUCTION
     kfrms = os.listdir(cfg.KEYFRAMES_DIR)
@@ -211,7 +213,6 @@ for i in range(cfg.LOOP_CYCLES):
 
     if len(kfrms) >= cfg.MIN_KEYFRAME_FOR_INITIALIZATION and newer_imgs == True:
         timer_loop = AverageTimer(logger=logger)
-
         timer = AverageTimer(logger=logger)
 
         print()
@@ -409,7 +410,7 @@ for i in range(cfg.LOOP_CYCLES):
             )
             timer.update("MODEL CONVERSION")
 
-            timer.print("COLMAP")
+        timer.print("COLMAP")
 
         # Export cameras
         lines, oriented_dict = export_cameras.ExportCameras(
@@ -422,9 +423,10 @@ for i in range(cfg.LOOP_CYCLES):
 
         # Keep track of sucessfully oriented frames in the current img_batch
         for image in img_batch:
-            keyframe_obj = list(
-                filter(lambda obj: obj.image_name == image, keyframes_list)
-            )[0]
+            keyframe_obj = keyframes_list.get_keyframe_by_image_name(image)
+            # keyframe_obj = list(
+            #     filter(lambda obj: obj.image_name == image, keyframes_list)
+            # )[0]
             if keyframe_obj.keyframe_id in list(oriented_dict.keys()):
                 oriented_imgs_batch.append(image)
                 keyframe_obj.oriented = True
@@ -440,9 +442,10 @@ for i in range(cfg.LOOP_CYCLES):
             )
         )[0]
         n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
-        last_keyframe = list(
-            filter(lambda obj: obj.keyframe_id == n_keyframes - 1, keyframes_list)
-        )[0]
+        last_keyframe = keyframes_list.get_keyframe_by_id(n_keyframes - 1)
+        # list(
+        #     filter(lambda obj: obj.keyframe_id == n_keyframes - 1, keyframes_list)
+        # )[0]
         last_keyframe_img_id = last_keyframe.image_id
         print("last_keyframe_img_id", last_keyframe_img_id)
         print("n_keyframes", n_keyframes)
@@ -467,9 +470,10 @@ for i in range(cfg.LOOP_CYCLES):
         # Define a reference img. All other oriented keyframes will be reported in the ref of the first keyframe
         if one_time == False:
             ref_img_id = oriented_dict_list[0]
-            keyframe_obj = list(
-                filter(lambda obj: obj.keyframe_id == ref_img_id, keyframes_list)
-            )[0]
+            keyframe_obj = keyframes_list.get_keyframe_by_id(ref_img_id)
+            # keyframe_obj = list(
+            #     filter(lambda obj: obj.keyframe_id == ref_img_id, keyframes_list)
+            # )[0]
             ref_img_name = keyframe_obj.image_name
             reference_imgs.append(ref_img_name)
             keyframe_obj.slamX = 0.0
@@ -481,10 +485,11 @@ for i in range(cfg.LOOP_CYCLES):
             list1 = []
             list2 = []
             for img_name in reference_imgs:
+                keyframe_obj = keyframes_list.get_keyframe_by_image_name(img_name)
                 # keyframe_obj = list(filter(lambda obj: obj.image_name == img_name, keyframes_list))[0]
-                keyframe_obj = [
-                    obj for obj in keyframes_list if obj.image_name == img_name
-                ][0]
+                # keyframe_obj = [
+                #     obj for obj in keyframes_list if obj.image_name == img_name
+                # ][0]
                 img_id = keyframe_obj.keyframe_id
                 if img_id in oriented_dict_list:
                     list1.append(oriented_dict[img_id][1])

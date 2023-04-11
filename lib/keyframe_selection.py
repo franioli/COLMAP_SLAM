@@ -24,7 +24,7 @@ RANSAC_THRESHOLD = 10
 RANSAC_ITERATIONS = 1000
 
 # TODO: use logger instead of print
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 # TODO: make ransac function independent from KeyFrameSelector class
@@ -132,6 +132,7 @@ class KeyFrameSelector:
         # Set initial pointer and delta
         self.pointer = last_keyframe_pointer
         self.delta = last_keyframe_delta
+        self.timer.update("init class")
 
         # If Local feeature is a Deep Learning model, we need to load it
         if self.local_feature == "ALIKE":
@@ -143,6 +144,7 @@ class KeyFrameSelector:
                 scores_th=self.local_feature_cfg.scores_th,
                 n_limit=self.local_feature_cfg.n_limit,
             )
+            self.timer.update("load model")
 
     def clear_matches(self) -> None:
         # Now it is executed for safety reasons vy self.run() at the end of the keyframeselection process... it may be removed if we want to keep track of the previous matched
@@ -267,8 +269,8 @@ class KeyFrameSelector:
                 camera_id,
                 self.pointer + self.delta + 1,
             )
-            # self.keyframes_list.add_keyframe(new_keyframe)
-            self.keyframes_list.append(new_keyframe)
+            self.keyframes_list.add_keyframe(new_keyframe)
+            # self.keyframes_list.append(new_keyframe)
             logger.info(
                 f"Frame accepted. New_keyframe image_id: {new_keyframe.image_id}"
             )

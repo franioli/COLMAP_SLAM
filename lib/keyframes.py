@@ -55,6 +55,18 @@ class KeyFrameList:
     def add_keyframe(self, keyframe: KeyFrame):
         self._keyframes.append(keyframe)
 
+    def get_keyframe_by_image_name(self, image_name: str):
+        for keyframe in self._keyframes:
+            if keyframe.image_name == image_name:
+                return keyframe
+        return None
+
+    def get_keyframe_by_id(self, keyframe_id: int):
+        for keyframe in self._keyframes:
+            if keyframe.keyframe_id == keyframe_id:
+                return keyframe
+        return None
+
 
 if __name__ == "__main__":
     pass
