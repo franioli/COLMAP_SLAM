@@ -39,6 +39,7 @@ from lib import (
     static_rejection,
     keyframe_selection,
 )
+from lib.keyframes import KeyFrame, KeyFrameList
 from lib.utils import Helmert, Id2name
 
 
@@ -129,10 +130,10 @@ class Inizialization:
 
     def get_colmap_path(self) -> str:
         """
-        get_colmap_path _summary_
+        Get the path to the COLMAP executable based on the operating system
 
         Returns:
-            str: _description_
+            str: The path to the COLMAP executable
         """
         OS = self.cfg.OS
         assert OS in [
@@ -208,7 +209,7 @@ cfg = init.inizialize()
 
 
 # Initialize variables
-keyframes_list = []
+keyframes_list = KeyFrameList()
 img_dict = (
     {}
 )  ############################################# it is used in feature extraction, maybe it can be eliminated
