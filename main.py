@@ -80,6 +80,7 @@ one_time = False  # It becomes true after the first batch of images is oriented
 reference_imgs = []
 
 # Setup keyframe selector
+# TODO: move ALIKE config in config.ini file
 alike_cfg = edict(
     {
         "model": "alike-s",
@@ -96,7 +97,7 @@ keyframe_selector = KeyFrameSelector(
     last_keyframe_delta=delta,
     keyframes_dir=cfg.KEYFRAMES_DIR,
     kfs_method=cfg.KFS_METHOD,
-    local_feature="ALIKE",  # cfg.KFS_LOCAL_FEATURE,
+    local_feature=cfg.KFS_LOCAL_FEATURE,
     local_feature_cfg=alike_cfg,
     n_features=cfg.KFS_N_FEATURES,
     realtime_viz=True,
