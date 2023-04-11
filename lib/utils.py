@@ -38,7 +38,7 @@ class AverageTimer:
         for name in self.will_print:
             self.will_print[name] = False
 
-    def update(self, name="default"):
+    def update(self, name=""):
         now = time.time()
         dt = now - self.last_time
         if name in self.times:
@@ -49,7 +49,7 @@ class AverageTimer:
 
     def print(self, text="Timer"):
         total = 0.0
-        msg = f"[Timer] | [{text}] "
+        msg = f"[{text}] | "
         for key in self.times:
             val = self.times[key]
             if self.will_print[key]:

@@ -82,7 +82,7 @@ reference_imgs = []
 # Setup keyframe selector
 alike_cfg = edict(
     {
-        "model": "alike-t",
+        "model": "alike-s",
         "device": "cuda",
         "top_k": cfg.KFS_N_FEATURES,  # -1
         "scores_th": 0.2,
@@ -163,9 +163,6 @@ for i in range(cfg.LOOP_CYCLES):
                 newer_imgs = True
                 img_batch.append(img)
                 keyframe_obj = keyframes_list.get_keyframe_by_image_name(img)
-                # keyframe_obj = list(
-                #     filter(lambda obj: obj.image_name == img, keyframes_list)
-                # )[0]
 
                 # Load exif data and store GNSS position if present
                 # or load camera cooridnates from other sensors
@@ -424,28 +421,18 @@ for i in range(cfg.LOOP_CYCLES):
         # Keep track of sucessfully oriented frames in the current img_batch
         for image in img_batch:
             keyframe_obj = keyframes_list.get_keyframe_by_image_name(image)
-            # keyframe_obj = list(
-            #     filter(lambda obj: obj.image_name == image, keyframes_list)
-            # )[0]
             if keyframe_obj.keyframe_id in list(oriented_dict.keys()):
                 oriented_imgs_batch.append(image)
-                keyframe_obj.oriented = True
+                keyframe_obj.set_oriented()
 
         # Define new reference img (pointer)
         print("list(oriented_dict.keys())")
         print(list(oriented_dict.keys()))
         last_oriented_keyframe = np.max(list(oriented_dict.keys()))
         print("last_oriented_keyframe", last_oriented_keyframe)
-        keyframe_obj = list(
-            filter(
-                lambda obj: obj.keyframe_id == last_oriented_keyframe, keyframes_list
-            )
-        )[0]
+        keyframe_obj = keyframes_list.get_keyframe_by_id(last_oriented_keyframe)
         n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
         last_keyframe = keyframes_list.get_keyframe_by_id(n_keyframes - 1)
-        # list(
-        #     filter(lambda obj: obj.keyframe_id == n_keyframes - 1, keyframes_list)
-        # )[0]
         last_keyframe_img_id = last_keyframe.image_id
         print("last_keyframe_img_id", last_keyframe_img_id)
         print("n_keyframes", n_keyframes)
@@ -471,9 +458,6 @@ for i in range(cfg.LOOP_CYCLES):
         if one_time == False:
             ref_img_id = oriented_dict_list[0]
             keyframe_obj = keyframes_list.get_keyframe_by_id(ref_img_id)
-            # keyframe_obj = list(
-            #     filter(lambda obj: obj.keyframe_id == ref_img_id, keyframes_list)
-            # )[0]
             ref_img_name = keyframe_obj.image_name
             reference_imgs.append(ref_img_name)
             keyframe_obj.slamX = 0.0
@@ -486,10 +470,6 @@ for i in range(cfg.LOOP_CYCLES):
             list2 = []
             for img_name in reference_imgs:
                 keyframe_obj = keyframes_list.get_keyframe_by_image_name(img_name)
-                # keyframe_obj = list(filter(lambda obj: obj.image_name == img_name, keyframes_list))[0]
-                # keyframe_obj = [
-                #     obj for obj in keyframes_list if obj.image_name == img_name
-                # ][0]
                 img_id = keyframe_obj.keyframe_id
                 if img_id in oriented_dict_list:
                     list1.append(oriented_dict[img_id][1])
@@ -501,10 +481,6 @@ for i in range(cfg.LOOP_CYCLES):
         # Apply rotantion matrix to move the updated photogrammetric model to the first model reference system
         for keyframe_id in oriented_dict_list:
             keyframe_obj = keyframes_list.get_keyframe_by_id(keyframe_id)
-            # keyframe_obj = list(
-            #     filter(lambda obj: obj.keyframe_id == keyframe_id, keyframes_list)
-            # )[0]
-            # keyframe_obj = [obj for obj in keyframes_list if obj.keyframe_id == keyframe_id][0]
             img_name = keyframe_obj.image_name
 
             if img_name == ref_img_name:

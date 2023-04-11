@@ -5,6 +5,8 @@ import configparser
 
 from PIL import Image
 
+STEP = 10
+
 # from lib.utils import Id2name
 
 # INPUT_DIR = r"data/MH_01_easy/mav0/cam0/data"
@@ -33,10 +35,10 @@ imgs.sort()
 #    time.sleep(0.25)
 
 ### EuRoC Machine Hall
-for i in range(0, 1000000, 10):
+for i in range(0, 1000000, STEP):
     img = imgs[i]
     # shutil.copy("{}/{}".format(INPUT_DIR, img), "{}/output{}.jpg".format(OUTPUT_DIR, i))
     im = Image.open("{}/{}".format(INPUT_DIR, img))
     rgb_im = im.convert("RGB")
-    rgb_im.save("{}/{}.jpg".format(OUTPUT_DIR, img[:-4])) #jpg
+    rgb_im.save("{}/{}.jpg".format(OUTPUT_DIR, img[:-4]))  # jpg
     time.sleep(1)

@@ -3,6 +3,28 @@ import cv2
 from copy import deepcopy
 
 
+def make_match_plot(
+    img: np.ndarray, mpts1: np.ndarray, mpts2: np.ndarray
+) -> np.ndarray:
+    """
+    Generates a visualization of the matched points.
+    Args:
+        img (numpy.ndarray): Current image.
+        mpts1 (numpy.ndarray): Matched points from the previous frame.
+        mpts2 (numpy.ndarray): Matched points from the current frame.
+    Returns:
+        numpy.ndarray: An image showing the matched points.
+    """
+    match_img = deepcopy(img)
+    for pt1, pt2 in zip(mpts1, mpts2):
+        p1 = (int(round(pt1[0])), int(round(pt1[1])))
+        p2 = (int(round(pt2[0])), int(round(pt2[1])))
+        cv2.line(match_img, p1, p2, (0, 255, 0), lineType=16)
+        cv2.circle(match_img, p2, 1, (0, 0, 255), -1, lineType=16)
+
+    return match_img
+
+
 class Matcher:
     def __init__(
         self,
@@ -44,11 +66,5 @@ class Matcher:
         Returns:
             numpy.ndarray: An image showing the matched points.
         """
-        match_img = deepcopy(img)
-        for pt1, pt2 in zip(mpts1, mpts2):
-            p1 = (int(round(pt1[0])), int(round(pt1[1])))
-            p2 = (int(round(pt2[0])), int(round(pt2[1])))
-            cv2.line(match_img, p1, p2, (0, 255, 0), lineType=16)
-            cv2.circle(match_img, p2, 1, (0, 0, 255), -1, lineType=16)
 
-        return match_img
+        return make_match_plot(img, mpts1, mpts2)

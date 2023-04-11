@@ -1,25 +1,25 @@
+import importlib
 import logging
 import os
-import sys
-import cv2
 import random
 import shutil
+import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import List, Union
-from copy import deepcopy
 
+import cv2
 import numpy as np
 from easydict import EasyDict as edict
 
 from lib import utils
 from lib.keyframes import KeyFrame, KeyFrameList
 from lib.local_features import LocalFeatures
-from lib.matching import Matcher
+from lib.matching import Matcher, make_match_plot
 from lib.thirdparty.alike.alike import ALike, configs
 
-
-INNOVATION_THRESH_PIX = 120  # 200
-MIN_MATCHES = 20
+INNOVATION_THRESH_PIX = 100  # 120
+MIN_MATCHES = 10
 RANSAC_THRESHOLD = 10
 RANSAC_ITERATIONS = 1000
 
@@ -47,7 +47,7 @@ class KeyFrameSelector:
         local_feature_cfg: dict = None,
         n_features: int = 512,
         kfs_matcher: str = "mnn_cosine",
-        geometric_verification: str = "ransac",
+        geometric_verification: str = "pydegensac",
         realtime_viz: bool = False,
         viz_res_path: Union[str, Path] = None,
         verbose: bool = False,
@@ -95,7 +95,6 @@ class KeyFrameSelector:
         # Set initial images to None
         self.img1 = None
         self.img2 = None
-        self.match_img = None
 
         # Set initial keyframes, descr, mpts to None
         self.kpts1 = None
@@ -184,18 +183,33 @@ class KeyFrameSelector:
             self.mpts1 = self.kpts1[matches_im1]
             self.mpts2 = self.kpts2[matches_im2]
 
-            if self.realtime_viz is True or self.viz_res_path is not None:
-                img = cv2.imread(str(self.img2))
-                self.match_img = matcher.make_plot(img, self.mpts1, self.mpts2)
-
         else:
             # Here we can implement matching methods
             logger.error("Error! Only mnn_cosine method is implemented")
             quit()
 
         ### Ransac to eliminate outliers
-        # TODO: move RANSAC to a separate function (and possible allow choises to use other method than ransac, eg. pydegensac, with same interface)
-        if self.geometric_verification == "ransac":
+        mask = np.ones(len(self.mpts1), dtype=bool)
+        if self.geometric_verification == "pydegensac":
+            try:
+                pydegensac = importlib.import_module("pydegensac")
+                F, mask = pydegensac.findFundamentalMatrix(
+                    self.mpts1,
+                    self.mpts2,
+                    px_th=3,
+                    conf=0.999,
+                    max_iters=RANSAC_ITERATIONS,
+                    laf_consistensy_coef=-1,
+                    error_type="sampson",
+                    symmetric_error_check=True,
+                    enable_degeneracy_check=True,
+                )
+                logger.info(f"Pydegensac found {mask.sum()}/{len(mask)} inliers")
+            except:
+                logging.error("Pydegensac not available.")
+                # TODO: implement a fallback to RANSAC
+        elif self.geometric_verification == "ransac":
+            # TODO: move RANSAC to a separate function
             match_dist = np.linalg.norm(self.mpts1 - self.mpts2, axis=1)
             rands = []
             scores = []
@@ -212,15 +226,16 @@ class KeyFrameSelector:
                 self.mpts1[max_consensus] - self.mpts2[max_consensus]
             )
             mask = np.absolute(match_dist - reference_distance) > RANSAC_THRESHOLD
-            logger.info(
-                f"Ransac found {len(list(filter(None, mask)))}/{len(mask)} inliers"
-            )
-            self.mpts1 = self.mpts1[mask, :]
-            self.mpts2 = self.mpts2[mask, :]
+            logger.info(f"Ransac found {mask.sum()}/{len(mask)} inliers")
+
         else:
             # Here we can implement other methods
-            logger.error("Error! Only ransac method is implemented")
+            logger.error(
+                f"Invalid choise for outlier rejection. Only Pydegensac (external library) and Ransac are implemented"
+            )
             quit()
+        self.mpts1 = self.mpts1[mask, :]
+        self.mpts2 = self.mpts2[mask, :]
 
         self.timer.update("matching")
         return True
@@ -277,18 +292,20 @@ class KeyFrameSelector:
             raise RuntimeError("Error in match_features")
         keyframe_accepted = self.innovation_check()
 
-        if self.match_img is not None:
-            if self.viz_res_path is not None:
-                cv2.imwrite(str(self.viz_res_path / self.img2.name), self.match_img)
-            if self.realtime_viz:
-                if keyframe_accepted:
-                    win_name = f"{self.local_feature} - MMD {self.median_match_dist:.2f}: Keyframe accepted"
-                else:
-                    win_name = f"{self.local_feature} - MMD {self.median_match_dist:.2f}: Frame rejected"
-                cv2.setWindowTitle("Keyframe Selection", win_name)
-                cv2.imshow("Keyframe Selection", self.match_img)
-                if cv2.waitKey(1) == ord("q"):
-                    sys.exit()
+        if self.viz_res_path is not None or self.realtime_viz:
+            img = cv2.imread(str(self.img2), cv2.IMREAD_UNCHANGED)
+            match_img = make_match_plot(img, self.mpts1, self.mpts2)
+        if self.viz_res_path is not None:
+            cv2.imwrite(str(self.viz_res_path / self.img2.name), match_img)
+        if self.realtime_viz:
+            if keyframe_accepted:
+                win_name = f"{self.local_feature} - MMD {self.median_match_dist:.2f}: Keyframe accepted"
+            else:
+                win_name = f"{self.local_feature} - MMD {self.median_match_dist:.2f}: Frame rejected"
+            cv2.setWindowTitle("Keyframe Selection", win_name)
+            cv2.imshow("Keyframe Selection", match_img)
+            if cv2.waitKey(1) == ord("q"):
+                sys.exit()
 
         self.clear_matches()
 
