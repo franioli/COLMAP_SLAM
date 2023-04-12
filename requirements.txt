@@ -6,3 +6,4 @@ opencv-contrib-python
 pyproj
 pymap3d
 piexif
+pydegensac

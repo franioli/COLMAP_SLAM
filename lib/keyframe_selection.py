@@ -38,9 +38,9 @@ def ransac(
 class KeyFrameSelector:
     def __init__(
         self,
-        keyframes_list: List,  # KeyFrameList,
-        last_keyframe_pointer: int,
-        last_keyframe_delta: int,
+        keyframes_list: KeyFrameList,
+        last_keyframe_pointer: int = 0,
+        last_keyframe_delta: int = 0,
         keyframes_dir: Union[str, Path] = "colmap_imgs",
         kfs_method: Union[str, Path] = "local_features",
         local_feature: str = "ORB",
