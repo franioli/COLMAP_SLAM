@@ -9,8 +9,8 @@ from PIL import Image
 
 # from lib.utils import Id2name
 
-STEP = 10
-SLEEP = 1
+STEP = 1
+SLEEP = 0.1
 DEBUG = False
 
 
@@ -39,6 +39,9 @@ ext = config["DEFAULT"]["IMG_FORMAT"]
 imgs = sorted(Path(input_dir).glob("*"))
 run_simulator(imgs, output_dir, ext)
 
+logging.warning("No more images available")
+sys.exit(0)
+
 # imgs = os.listdir(INPUT_DIR)
 # imgs.sort()
 
@@ -65,8 +68,6 @@ run_simulator(imgs, output_dir, ext)
 #     rgb_im.save("{}/{}.jpg".format(OUTPUT_DIR, img[:-4]))  # jpg
 #     time.sleep(1)
 
-# logging.warning("No more images available")
-# sys.exit(0)
 
 if __name__ == "__main__":
     input_dir = r"data/MH_01_easy/mav0/cam0/data"
