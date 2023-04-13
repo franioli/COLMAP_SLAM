@@ -10,8 +10,8 @@ from PIL import Image
 # from lib.utils import Id2name
 
 STEP = 1
-SLEEP = 0.1
 DEBUG = False
+# SLEEP = 1
 
 
 def run_simulator(imgs, output_dir="./imgs", ext="jpg"):
@@ -33,7 +33,7 @@ config = configparser.ConfigParser()
 config.read("config.ini", encoding="utf-8")
 input_dir = config["DEFAULT"]["SIMULATOR_IMG_DIR"]
 output_dir = config["DEFAULT"]["IMGS_FROM_SERVER"]
-
+SLEEP = float(config["DEFAULT"]["SLEEP_TIME"])
 ext = config["DEFAULT"]["IMG_FORMAT"]
 
 imgs = sorted(Path(input_dir).glob("*"))
@@ -69,10 +69,10 @@ sys.exit(0)
 #     time.sleep(1)
 
 
-if __name__ == "__main__":
-    input_dir = r"data/MH_01_easy/mav0/cam0/data"
-    output_dir = r"./imgs"
-    ext = config["DEFAULT"]["IMG_FORMAT"]
+# if __name__ == "__main__":
+#     input_dir = r"data/MH_01_easy/mav0/cam0/data"
+#     output_dir = r"./imgs"
+#     ext = config["DEFAULT"]["IMG_FORMAT"]
 
-    imgs = sorted(Path(input_dir).glob("*"))
-    run_simulator(imgs, output_dir, ext)
+#     imgs = sorted(Path(input_dir).glob("*"))
+#     run_simulator(imgs, output_dir, ext)
