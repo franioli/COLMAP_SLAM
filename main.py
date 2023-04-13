@@ -38,10 +38,14 @@ from lib import (
     database,
     export_cameras,
 )
-from lib.initialization import Inizialization
 from lib.keyframe_selection import KeyFrameSelector
 from lib.keyframes import KeyFrame, KeyFrameList
-from lib.utils import AverageTimer, Helmert, Id2name
+from lib import utils
+
+
+def colmap_process() -> bool:
+    pass
+
 
 ### OPTIONS FOR EKF - Development temporarily interrupted, do not change values
 T = 0.1
@@ -61,7 +65,7 @@ logger = logging.getLogger("ColmapSLAM")
 
 # Inizialize COLMAP SLAM problem
 # NOTE: Initialization class moved to a new file in lib
-init = Inizialization(CFG_FILE)
+init = utils.Inizialization(CFG_FILE)
 cfg = init.inizialize()
 
 # Initialize variables
@@ -96,8 +100,8 @@ keyframe_selector = KeyFrameSelector(
     last_keyframe_pointer=pointer,
     last_keyframe_delta=delta,
     keyframes_dir=cfg.KEYFRAMES_DIR,
-    kfs_method="ALIKE",  #"ORB",  #  cfg.KFS_METHOD,
-    geometric_verification="pydegensac",  #"ransac",  # 
+    kfs_method="ALIKE",  # "ORB",  #  cfg.KFS_METHOD,
+    geometric_verification="pydegensac",  # "ransac",  #
     local_feature=cfg.KFS_LOCAL_FEATURE,
     local_feature_cfg=alike_cfg,
     n_features=cfg.KFS_N_FEATURES,
@@ -146,7 +150,7 @@ for i in range(cfg.LOOP_CYCLES):
 
             print("")
             logger.info(f"pointer {pointer} c {c}")
-            timer_kfs = AverageTimer(logger=logger)
+            timer_kfs = utils.AverageTimer(logger=logger)
 
             img1 = imgs[pointer]
             img2 = img
@@ -211,8 +215,8 @@ for i in range(cfg.LOOP_CYCLES):
     kfrms.sort()
 
     if len(kfrms) >= cfg.MIN_KEYFRAME_FOR_INITIALIZATION and newer_imgs == True:
-        timer_loop = AverageTimer(logger=logger)
-        timer = AverageTimer(logger=logger)
+        timer_loop = utils.AverageTimer(logger=logger)
+        timer = utils.AverageTimer(logger=logger)
 
         print()
         logger.info(f"[LOOP : {i}]")
@@ -478,7 +482,7 @@ for i in range(cfg.LOOP_CYCLES):
                     list2.append(
                         (keyframe_obj.slamX, keyframe_obj.slamY, keyframe_obj.slamZ)
                     )
-            R_, t_, scale_factor_ = Helmert(list1, list2, cfg.OS, cfg.DEBUG)
+            R_, t_, scale_factor_ = utils.Helmert(list1, list2, cfg.OS, cfg.DEBUG)
 
         # Apply rotantion matrix to move the updated photogrammetric model to the first model reference system
         for keyframe_id in oriented_dict_list:
@@ -517,7 +521,7 @@ for i in range(cfg.LOOP_CYCLES):
         #    # INITIALIZATION SCALE FACTOR AND KALMAN FILTER
         #    if len(kfrms) == 30:
         #        # For images with both slam and gnss solution
-        #        # georeference slam with Helmert transformation
+        #        # georeference slam with utils.Helmert transformation
         #        slam_coord = []
         #        gnss_coord = []
         #        for img in position_dict:
@@ -538,7 +542,7 @@ for i in range(cfg.LOOP_CYCLES):
         #                )
         #        # print(slam_coord, gnss_coord)
         #
-        #        R, t, scale_factor = Helmert(slam_coord, gnss_coord, OS, DEBUG)
+        #        R, t, scale_factor = utils.Helmert(slam_coord, gnss_coord, OS, DEBUG)
         #        # print(R, t)
         #
         #        # Store positions
@@ -579,7 +583,7 @@ for i in range(cfg.LOOP_CYCLES):
         #        oriented_imgs_batch.sort()
         #        for img_id in oriented_imgs_batch:
         #            # print(img_id)
-        #            img_name = inverted_img_dict[Id2name(img_id)]
+        #            img_name = inverted_img_dict[utils.Id2name(img_id)]
         #            # Positions in Sdr of the reference img
         #            x = position_dict[img_name]["slamX"]
         #            y = position_dict[img_name]["slamY"]
@@ -591,22 +595,22 @@ for i in range(cfg.LOOP_CYCLES):
         #            Zslam.append(scaled_observation[2, 0])
         #
         #            if state_init == False:
-        #                X1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
+        #                X1 = position_dict[inverted_img_dict[utils.Id2name(img_id - 2)]][
         #                    "slamX"
         #                ]
-        #                Y1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
+        #                Y1 = position_dict[inverted_img_dict[utils.Id2name(img_id - 2)]][
         #                    "slamY"
         #                ]
-        #                Z1 = position_dict[inverted_img_dict[Id2name(img_id - 2)]][
+        #                Z1 = position_dict[inverted_img_dict[utils.Id2name(img_id - 2)]][
         #                    "slamZ"
         #                ]
-        #                X2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
+        #                X2 = position_dict[inverted_img_dict[utils.Id2name(img_id - 1)]][
         #                    "slamX"
         #                ]
-        #                Y2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
+        #                Y2 = position_dict[inverted_img_dict[utils.Id2name(img_id - 1)]][
         #                    "slamY"
         #                ]
-        #                Z2 = position_dict[inverted_img_dict[Id2name(img_id - 1)]][
+        #                Z2 = position_dict[inverted_img_dict[utils.Id2name(img_id - 1)]][
         #                    "slamZ"
         #                ]
         #                X_1 = np.array([[X1, Y1, Z1]]).T

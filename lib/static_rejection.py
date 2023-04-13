@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from lib import BruteForce, database
-from .utils import timeit
+from .utils.utils import timeit
 
 MAX_RATIO = 0.90  # 0.60
 MIN_RATIO = 0

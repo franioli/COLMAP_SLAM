@@ -1,6 +1,8 @@
 import numpy as np
 import cv2
 from copy import deepcopy
+import logging
+import importlib
 
 
 def make_match_plot(
@@ -68,3 +70,72 @@ class Matcher:
         """
 
         return make_match_plot(img, mpts1, mpts2)
+
+    def geometric_verification(
+        self,
+        threshold: float = 1,
+        confidence: float = 0.9999,
+        max_iters: int = 10000,
+        laf_consistensy_coef: float = -1.0,
+        error_type: str = "sampson",
+        symmetric_error_check: bool = True,
+        enable_degeneracy_check: bool = True,
+    ) -> np.ndarray:
+        """
+        Computes the fundamental matrix and inliers between the two images using geometric verification.
+
+        Args:
+            threshold (float): Pixel error threshold for considering a correspondence an inlier.
+            confidence (float): The required confidence level in the results.
+            max_iters (int): The maximum number of iterations for estimating the fundamental matrix.
+            laf_consistensy_coef (float): The weight given to Local Affine Frame (LAF) consistency term for pydegensac.
+            error_type (str): The error function used for computing the residuals in the RANSAC loop.
+            symmetric_error_check (bool): If True, performs an additional check on the residuals in the opposite direction.
+            enable_degeneracy_check (bool): If True, enables the check for degeneracy using SVD.
+
+        Returns:
+            np.ndarray: A Boolean array that masks the correspondences that were identified as inliers.
+
+        TODO: allow parameters for both MGAC++ and pydegensac to be passed in (currentely only pydegensac is supported).
+        TODO: add support for other geometric verification methods.
+        """
+
+        try:
+            pydegensac = importlib.import_module("pydegensac")
+            use_pydegensac = True
+        except:
+            logging.error(
+                "Pydegensac not available. Using MAGSAC++ (OpenCV) for geometric verification."
+            )
+            use_pydegensac = False
+        try:
+            if use_pydegensac:
+                _, mask = pydegensac.findFundamentalMatrix(
+                    self.mpts1,
+                    self.mpts2,
+                    px_th=threshold,
+                    conf=confidence,
+                    max_iters=max_iters,
+                    laf_consistensy_coef=laf_consistensy_coef,
+                    error_type=error_type,
+                    symmetric_error_check=symmetric_error_check,
+                    enable_degeneracy_check=enable_degeneracy_check,
+                )
+                logging.info(f"Pydegensac found {mask.sum()}/{len(mask)} inliers")
+            else:
+                _, inliers = cv2.findFundamentalMat(
+                    self.mpts1,
+                    self.mpts2,
+                    cv2.USAC_MAGSAC,
+                    0.5,
+                    0.999,
+                    100000,
+                )
+                mask = inliers > 0
+                logging.info(f"MAGSAC++ found {mask.sum()}/{len(mask)}")
+            self.mpts1 = self.mpts1[mask, :]
+            self.mpts2 = self.mpts2[mask, :]
+        except ValueError as err:
+            logging.error(f"Unable to perform geometric verification: {err}.")
+
+        return self.inlMask

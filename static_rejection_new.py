@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from lib.thirdparty.alike.alike import ALike, configs
 from lib.thirdparty.transformations import euler_from_matrix
-from lib.utils import AverageTimer, timeit
+from lib.utils.utils import AverageTimer, timeit
 
 logger = logging.getLogger("Static Rejection")
 logging.basicConfig(
