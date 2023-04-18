@@ -160,13 +160,10 @@ state_init = False
 # Configuration file
 CFG_FILE = "config.ini"
 
-# Setup logger (TODO: move this in Inizialization class)
-# TODO: use logger instead of print
+# Setup logging level
+# TODO: use always logger instead of print
 LOG_LEVEL = logging.INFO
-logging.basicConfig(
-    format="%(asctime)s | %(name)s | %(levelname)s: %(message)s",
-    level=LOG_LEVEL,
-)
+utils.Inizialization.setup_logger(LOG_LEVEL)
 logger = logging.getLogger("ColmapSLAM")
 
 # Inizialize COLMAP SLAM problem
@@ -212,6 +209,7 @@ keyframe_selector = KeyFrameSelector(
     local_feature_cfg=alike_cfg,
     n_features=cfg.KFS_N_FEATURES,
     realtime_viz=True,
+    viz_res_path="kfs_matches",
 )
 
 # If the camera coordinates are known from other sensors than gnss,
@@ -235,6 +233,7 @@ else:
 # create_plot()
 p = subprocess.Popen(["python3", "./plot.py"])
 
+kfs_times = []
 ### MAIN LOOP
 for i in range(cfg.LOOP_CYCLES):
     # Get sorted image list available in imgs folders
@@ -269,7 +268,10 @@ for i in range(cfg.LOOP_CYCLES):
                 keyframes_list,
                 pointer,
                 delta,
+                dt,
             ) = keyframe_selector.run(img1, img2)
+            kfs_times.append(dt)
+            # print(dt)
 
             # Set if new keyframes are added
             new_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
@@ -791,3 +793,7 @@ for i in range(cfg.LOOP_CYCLES):
         timer_loop.print()
 
     time.sleep(cfg.SLEEP_TIME)
+
+logging.info("Dataset completed.")
+
+print("Done.")

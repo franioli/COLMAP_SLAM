@@ -21,7 +21,7 @@ def timeit(func):
 class AverageTimer:
     """Class to help manage printing simple timing of code execution."""
 
-    def __init__(self, smoothing=0.3, logger=None):
+    def __init__(self, smoothing=0.0, logger=None):
         self.smoothing = smoothing
         self.times = OrderedDict()
         self.will_print = OrderedDict()
@@ -58,3 +58,12 @@ class AverageTimer:
             logging.info(msg)
 
         self.reset()
+        return total
+
+    def get_total(self):
+        total = 0.0
+        for key, val in self.times.items():
+            if self.will_print[key]:
+                total += val
+
+        return total

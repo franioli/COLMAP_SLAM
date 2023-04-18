@@ -89,7 +89,7 @@ class KeyFrameSelector:
             self.viz_res_path.mkdir(exist_ok=True)
         else:
             self.viz_res_path = None
-        self.timer = utils.AverageTimer()
+        self.timer = None
         self.verbose = verbose
 
         # Set initial images to None
@@ -108,7 +108,6 @@ class KeyFrameSelector:
         # Set initial pointer and delta
         self.pointer = last_keyframe_pointer
         self.delta = last_keyframe_delta
-        self.timer.update("init class")
 
         # If Local feeature is a Deep Learning model, we need to load it
         if self.local_feature == "ALIKE":
@@ -120,10 +119,9 @@ class KeyFrameSelector:
                 scores_th=self.local_feature_cfg.scores_th,
                 n_limit=self.local_feature_cfg.n_limit,
             )
-            self.timer.update("load model")
 
     def clear_matches(self) -> None:
-        # Now it is executed for safety reasons vy self.run() at the end of the keyframeselection process... it may be removed if we want to keep track of the previous matched
+        # Now it is executed for safety reasons by self.run() at the end of the keyframeselection process... it may be removed if we want to keep track of the previous matched
         self.kpts1 = None
         self.kpts2 = None
         self.desc1 = None
@@ -165,7 +163,8 @@ class KeyFrameSelector:
             logger.error("Error! Only local_features method is implemented")
             quit()
 
-        self.timer.update("features extraction")
+        if self.timer is not None:
+            self.timer.update("features extraction")
 
         return True
 
@@ -237,7 +236,8 @@ class KeyFrameSelector:
         self.mpts1 = self.mpts1[mask, :]
         self.mpts2 = self.mpts2[mask, :]
 
-        self.timer.update("matching")
+        if self.timer is not None:
+            self.timer.update("matching")
         return True
 
     def innovation_check(self) -> bool:
@@ -248,7 +248,8 @@ class KeyFrameSelector:
         if len(self.mpts1) < MIN_MATCHES:
             logger.info("Frame rejected: not enogh matches")
             self.delta += 1
-            self.timer.update("innovation check")
+            if self.timer is not None:
+                self.timer.update("innovation check")
 
             return False
 
@@ -274,18 +275,22 @@ class KeyFrameSelector:
 
             self.pointer += 1 + self.delta
             self.delta = 0
-            self.timer.update("innovation check")
+            if self.timer is not None:
+                self.timer.update("innovation check")
 
             return True
 
         else:
             logger.info("Frame rejected")
             self.delta += 1
-            self.timer.update("innovation check")
+            if self.timer is not None:
+                self.timer.update("innovation check")
 
             return False
 
     def run(self, img1: Union[str, Path], img2: Union[str, Path]):
+        self.timer = utils.AverageTimer()
+
         if not self.extract_features(img1, img2):
             raise RuntimeError("Error in extract_features")
         if not self.match_features():
@@ -295,13 +300,14 @@ class KeyFrameSelector:
         if self.viz_res_path is not None or self.realtime_viz:
             img = cv2.imread(str(self.img2), cv2.IMREAD_UNCHANGED)
             match_img = make_match_plot(img, self.mpts1, self.mpts2)
-        if self.viz_res_path is not None:
-            cv2.imwrite(str(self.viz_res_path / self.img2.name), match_img)
-        if self.realtime_viz:
             if keyframe_accepted:
                 win_name = f"{self.local_feature} - MMD {self.median_match_dist:.2f}: Keyframe accepted"
             else:
                 win_name = f"{self.local_feature} - MMD {self.median_match_dist:.2f}: Frame rejected"
+        if self.viz_res_path is not None:
+            out_name = f"{self.img1.stem}_{win_name}.jpg"
+            cv2.imwrite(str(self.viz_res_path / out_name), match_img)
+        if self.realtime_viz:
             cv2.setWindowTitle("Keyframe Selection", win_name)
             cv2.imshow("Keyframe Selection", match_img)
             if cv2.waitKey(1) == ord("q"):
@@ -309,10 +315,9 @@ class KeyFrameSelector:
 
         self.clear_matches()
 
-        if self.verbose:
-            self.timer.print()
+        time = self.timer.print()
 
-        return self.keyframes_list, self.pointer, self.delta
+        return self.keyframes_list, self.pointer, self.delta, time
 
 
 # def KeyframeSelection(

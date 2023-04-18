@@ -1,7 +1,10 @@
 import configparser
+import logging
 import os
 import shutil
+from datetime import date, datetime
 from pathlib import Path
+
 from easydict import EasyDict as edict
 
 
@@ -19,6 +22,24 @@ class Inizialization:
             cfg_file (str): Path to the configuration file
         """
         self.cfg_file = cfg_file
+
+    @staticmethod
+    def setup_logger(log_level) -> None:
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        today = date.today()
+        now = datetime.now()
+        current_date = f"{today.strftime('%Y_%m_%d')}_{now.strftime('%H:%M')}"
+        log_file = log_dir / f"colmapslam_{current_date}.log"
+        logging.basicConfig(
+            level=log_level,
+            format="%(asctime)s | %(levelname)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler(),
+            ],
+        )
 
     def parse_config_file(self) -> edict:
         """
