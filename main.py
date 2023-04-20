@@ -225,23 +225,31 @@ if cfg.USE_EXTERNAL_CAM_COORD == True:
 
 # Stream of input data
 if cfg.USE_SERVER == True:
-    p = subprocess.Popen([cfg.LAUNCH_SERVER_PATH])
+    stream_proc = subprocess.Popen([cfg.LAUNCH_SERVER_PATH])
 else:
-    p = subprocess.Popen(["python3", "./simulator.py"])
+    stream_proc = subprocess.Popen(["python3", "./simulator.py"])
 
 # Set-up plotqq
 # create_plot()
-p = subprocess.Popen(["python3", "./plot.py"])
+plot_proc = subprocess.Popen(["python3", "./plot.py"])
 
 kfs_times = []
 
 ### MAIN LOOP
 loop_times = []
 for i in range(cfg.LOOP_CYCLES):
-    timer_loop = utils.AverageTimer(logger=logger)
+    timer_global = utils.AverageTimer(logger=logger)
 
     # Get sorted image list available in imgs folders
     imgs = sorted(cfg.IMGS_FROM_SERVER.glob(f"*.{cfg.IMG_FORMAT}"))
+
+    # If using the simulator, check if process is still alive, otherwise quit
+    if cfg.USE_SERVER == False:
+        if stream_proc.poll() is not None: 
+            logging.info("Simulator completed.")
+            plot_proc.kill()
+            break
+
     img_batch = []
 
     newer_imgs = False  # To control that new keyframes are added
@@ -817,11 +825,15 @@ for i in range(cfg.LOOP_CYCLES):
         img_batch = []
         oriented_imgs_batch = []
 
-    timer_loop.update("Loop time")
-    loop_times.append(timer_loop.print())
+    timer_global.update("Loop time")
 
     time.sleep(cfg.SLEEP_TIME)
 
-logging.info("Dataset completed.")
+loop_times = timer_global.get_times()
+average_loop_time = timer_global.get_average_time()
+total_time = timer_global.get_total_time()
+timer_global.print("Timer global")
 
+print("Total time: ", total_time)
+print(f"Average loop time: {average_loop_time:.3f} s")
 print("Done.")

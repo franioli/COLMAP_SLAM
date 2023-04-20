@@ -26,6 +26,8 @@ def run_simulator(imgs, output_dir="./imgs", ext="jpg", step=1, sleep=0.5):
         rgb_im.save(Path(output_dir) / f"{img.stem}.{ext}")
         time.sleep(sleep)
 
+    logging.info("No more images available")
+
 
 config = configparser.ConfigParser()
 config.read("config.ini", encoding="utf-8")
@@ -37,9 +39,6 @@ sleep = float(config["DEFAULT"]["SLEEP_TIME"])
 
 imgs = sorted(Path(input_dir).glob("*"))
 run_simulator(imgs, output_dir, ext, step, sleep)
-
-logging.warning("No more images available")
-sys.exit(0)
 
 # imgs = os.listdir(INPUT_DIR)
 # imgs.sort()
