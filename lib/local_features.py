@@ -10,31 +10,30 @@ from lib.thirdparty.alike.alike import ALike, configs
 class LocalFeatures:
     def __init__(
         self,
-        imgs: List[str],
-        n_features: int,
         method: str,
-        cfg: dict,
+        n_features: int,
+        cfg: dict = None,
     ) -> None:
-        self.imgs = imgs
         self.n_features = n_features
         self.method = method
-        self.cfg = cfg
+
+        self.kpts = {}
+        self.descriptors = {}
 
         # If method is ALIKE, load Alike model weights
         if self.method == "ALIKE":
+            self.alike_cfg = cfg
             self.model = ALike(
-                **configs[self.cfg.model],
-                device=self.cfg.device,
-                top_k=self.cfg.top_k,
-                scores_th=self.cfg.scores_th,
-                n_limit=self.cfg.n_limit,
+                **configs[self.alike_cfg.model],
+                device=self.alike_cfg.device,
+                top_k=self.alike_cfg.top_k,
+                scores_th=self.alike_cfg.scores_th,
+                n_limit=self.alike_cfg.n_limit,
             )
 
-    def ORB(self) -> Tuple[List[np.ndarray], List[np.ndarray]]:
-        all_kpts = []
-        all_descriptors = []
-
-        for im_path in self.imgs:
+    def ORB(self, images: List[Path]) -> Tuple[List[np.ndarray], List[np.ndarray]]:
+        for im_path in images:
+            im_path = Path(im_path)
             im = cv2.imread(str(im_path), cv2.IMREAD_GRAYSCALE)
             orb = cv2.ORB_create(nfeatures=self.n_features)
             kp = orb.detect(im, None)
@@ -53,23 +52,17 @@ class LocalFeatures:
             des = np.round(des)
             des = np.array(des, dtype=np.uint8)
 
-            all_kpts.append(kpts)
-            all_descriptors.append(des)
+            self.kpts[im_path.stem] = kpts
+            self.descriptors[im_path.stem] = des
 
-        return all_kpts, all_descriptors
+        return self.kpts, self.descriptors
 
     def ALIKE(self, images: List[Path]):
-        all_kpts = []
-        all_descriptors = []
         for im_path in images:
-            img = cv2.cvtColor(cv2.imread(str(self.im_path)), cv2.COLOR_BGR2RGB)
-            features = self.model(img, sub_pixel=self.cfg.subpixel)
+            img = cv2.cvtColor(cv2.imread(str(im_path)), cv2.COLOR_BGR2RGB)
+            features = self.model(img, sub_pixel=self.alike_cfg.subpixel)
 
-            all_kpts.append(features["keypoints"])
-            all_descriptors.append(features["descriptors"])
+            self.kpts[im_path.stem] = features["keypoints"]
+            self.descriptors[im_path.stem] = features["descriptors"]
 
-        return all_kpts, all_descriptors
-
-    def run(self):
-        if self.method == "ORB":
-            self.ORB()
+        return self.kpts, self.descriptors

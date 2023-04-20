@@ -98,6 +98,14 @@ class KeyFrameSelector:
         self.img1 = None
         self.img2 = None
 
+        # Initialize LocalFeature object
+        if self.method == "local_features":
+            self.feature_extractor = LocalFeatures(
+                method=self.local_feature,
+                n_features=self.n_features,
+                cfg=self.local_feature_cfg,
+            )
+
         # Set initial keyframes, descr, mpts to None
         self.last_keyframe_features = None
         self.kpts1 = None
@@ -111,17 +119,6 @@ class KeyFrameSelector:
         # Set initial pointer and delta
         self.pointer = last_keyframe_pointer
         self.delta = last_keyframe_delta
-
-        # If Local feeature is a Deep Learning model, we need to load it
-        if self.local_feature == "ALIKE":
-            # TODO: validate that the config dictionary self.matcher_cfg is correct and containes all the required keys
-            self.model = ALike(
-                **configs[self.local_feature_cfg.model],
-                device=self.local_feature_cfg.device,
-                top_k=self.local_feature_cfg.top_k,
-                scores_th=self.local_feature_cfg.scores_th,
-                n_limit=self.local_feature_cfg.n_limit,
-            )
 
     def clear_matches(self) -> None:
         # Now it is executed for safety reasons by self.run() at the end of the keyframeselection process... it may be removed if we want to keep track of the previous matched
@@ -137,30 +134,23 @@ class KeyFrameSelector:
         self.img1 = Path(img1)
         self.img2 = Path(img2)
 
-        if self.method == "local_features":
-            local_feature = LocalFeatures(
-                [img1, img2], self.n_features, self.local_feature
-            )
+        # if self.method == "local_features":
+        # local_feature = LocalFeatures(self.n_features, self.local_feature)
         if self.local_feature == "ORB":
-            all_keypoints, all_descriptors = local_feature.ORB()
-            self.kpts1 = all_keypoints[0][:, 0:2]
-            self.kpts2 = all_keypoints[1][:, 0:2]
-            self.desc1 = all_descriptors[0][:, 0:32]
-            self.desc2 = all_descriptors[1][:, 0:32]
+            all_keypoints, all_descriptors = self.feature_extractor.ORB([img1, img2])
+            self.kpts1 = all_keypoints[img1.stem][:, 0:2]
+            self.kpts2 = all_keypoints[img2.stem][:, 0:2]
+            self.desc1 = all_descriptors[img1.stem][:, 0:32]
+            self.desc2 = all_descriptors[img2.stem][:, 0:32]
 
         elif self.local_feature == "ALIKE":
-            # Now Alike is implemented independentely from LocalFeatures because the Alike model is loaded only once when the KeyFrameSelector is initialized for speedup the procedure.
-            # TODO: implement Alike as a LocalFeatures method, so that we can use it in the same way as ORB
             # TODO: to speed up the procedure, keep the keypoints and descriptors of the last keyframe in memory, instead of extracting them again
-            img1 = cv2.cvtColor(cv2.imread(str(self.img1)), cv2.COLOR_BGR2RGB)
-            features1 = self.model(img1, sub_pixel=self.local_feature_cfg.subpixel)
-            self.kpts1 = features1["keypoints"]
-            self.desc1 = features1["descriptors"]
+            all_keypoints, all_descriptors = self.feature_extractor.ALIKE([img1, img2])
+            self.kpts1 = all_keypoints[img1.stem]
+            self.kpts2 = all_keypoints[img2.stem]
+            self.desc1 = all_descriptors[img1.stem]
+            self.desc2 = all_descriptors[img2.stem]
 
-            img2 = cv2.cvtColor(cv2.imread(str(self.img2)), cv2.COLOR_BGR2RGB)
-            features2 = self.model(img2, sub_pixel=self.local_feature_cfg.subpixel)
-            self.kpts2 = features2["keypoints"]
-            self.desc2 = features2["descriptors"]
         else:
             # Here we can implement methods like LoFTR
             logger.error("Error! Only local_features method is implemented")

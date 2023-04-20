@@ -211,7 +211,7 @@ keyframe_selector = KeyFrameSelector(
     local_feature="ALIKE",  # "ORB",  #
     local_feature_cfg=alike_cfg,
     n_features=cfg.KFS_N_FEATURES,
-    realtime_viz=False,  # True,
+    realtime_viz=True,  # True,
     viz_res_path=None,  # "kfs_matches",
 )
 
