@@ -65,6 +65,7 @@ class Inizialization:
         cfg.IMGS_FROM_SERVER = Path(
             config["DEFAULT"]["IMGS_FROM_SERVER"]
         )  # Path(r"/home/luca/Scrivania/3DOM/Github_lcmrl/Server_Connection/c++_send_images/imgs")
+        cfg.STEP = config["DEFAULT"]["STEP"]
         cfg.IMG_FORMAT = config["DEFAULT"]["IMG_FORMAT"]
         cfg.MAX_N_FEATURES = int(config["DEFAULT"]["MAX_N_FEATURES"])
         cfg.INITIAL_SEQUENTIAL_OVERLAP = int(

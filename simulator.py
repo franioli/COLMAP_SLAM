@@ -9,15 +9,13 @@ from PIL import Image
 
 # from lib.utils import Id2name
 
-STEP = 1
 DEBUG = False
-# SLEEP = 1
 
 
-def run_simulator(imgs, output_dir="./imgs", ext="jpg"):
+def run_simulator(imgs, output_dir="./imgs", ext="jpg", step=1, sleep=0.5):
     for i, img in enumerate(imgs):
         # Process only every STEP-th image
-        if i % STEP != 0:
+        if i % step != 0:
             continue
 
         if DEBUG:
@@ -26,18 +24,19 @@ def run_simulator(imgs, output_dir="./imgs", ext="jpg"):
         im = Image.open(img)
         rgb_im = im.convert("RGB")
         rgb_im.save(Path(output_dir) / f"{img.stem}.{ext}")
-        time.sleep(SLEEP)
+        time.sleep(sleep)
 
 
 config = configparser.ConfigParser()
 config.read("config.ini", encoding="utf-8")
 input_dir = config["DEFAULT"]["SIMULATOR_IMG_DIR"]
 output_dir = config["DEFAULT"]["IMGS_FROM_SERVER"]
-SLEEP = float(config["DEFAULT"]["SLEEP_TIME"])
 ext = config["DEFAULT"]["IMG_FORMAT"]
+step = int(config["DEFAULT"]["STEP"])
+sleep = float(config["DEFAULT"]["SLEEP_TIME"])
 
 imgs = sorted(Path(input_dir).glob("*"))
-run_simulator(imgs, output_dir, ext)
+run_simulator(imgs, output_dir, ext, step, sleep)
 
 logging.warning("No more images available")
 sys.exit(0)

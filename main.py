@@ -203,9 +203,9 @@ keyframe_selector = KeyFrameSelector(
     last_keyframe_pointer=pointer,
     last_keyframe_delta=delta,
     keyframes_dir=cfg.KEYFRAMES_DIR,
-    kfs_method="ALIKE",  # "ORB",  #  cfg.KFS_METHOD,
+    kfs_method="local_features",
     geometric_verification="pydegensac",  # "ransac",  #
-    local_feature=cfg.KFS_LOCAL_FEATURE,
+    local_feature="ALIKE",  # "ORB",  #
     local_feature_cfg=alike_cfg,
     n_features=cfg.KFS_N_FEATURES,
     realtime_viz=True,
@@ -229,13 +229,17 @@ if cfg.USE_SERVER == True:
 else:
     p = subprocess.Popen(["python3", "./simulator.py"])
 
-# Set-up plot
+# Set-up plotqq
 # create_plot()
 p = subprocess.Popen(["python3", "./plot.py"])
 
 kfs_times = []
+
 ### MAIN LOOP
+loop_times = []
 for i in range(cfg.LOOP_CYCLES):
+    timer_loop = utils.AverageTimer(logger=logger)
+
     # Get sorted image list available in imgs folders
     imgs = sorted(cfg.IMGS_FROM_SERVER.glob(f"*.{cfg.IMG_FORMAT}"))
     img_batch = []
@@ -244,9 +248,27 @@ for i in range(cfg.LOOP_CYCLES):
     processed = 0  # Number of processed images
 
     # Keyframe selection
-    if len(imgs) < 2:
+    if len(imgs) < 1:
         continue
-
+    if len(imgs) < 2:
+        # Set first frame as keyframe
+        img0 = imgs[pointer]
+        existing_keyframe_number = 0
+        shutil.copy(
+            img0,
+            cfg.KEYFRAMES_DIR / f"{utils.Id2name(existing_keyframe_number)}",
+        )
+        camera_id = 1
+        keyframes_list.add_keyframe(
+            KeyFrame(
+                img0,
+                existing_keyframe_number,
+                utils.Id2name(existing_keyframe_number),
+                camera_id,
+                pointer + delta + 1,
+            )
+        )
+        continue
     elif len(imgs) >= 2:
         for c, img in enumerate(imgs):
             # Decide if new images are valid to be added to the sequential matching
@@ -268,10 +290,10 @@ for i in range(cfg.LOOP_CYCLES):
                 keyframes_list,
                 pointer,
                 delta,
+                # _,
                 dt,
             ) = keyframe_selector.run(img1, img2)
             kfs_times.append(dt)
-            # print(dt)
 
             # Set if new keyframes are added
             new_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
@@ -284,7 +306,7 @@ for i in range(cfg.LOOP_CYCLES):
                 # or load camera cooridnates from other sensors
                 exif_data = []
                 try:
-                    exif_data = piexif.load("{}/imgs/{}".format(os.getcwd(), img2))
+                    exif_data = piexif.load(str(img2))
                 except:
                     logger.error(
                         "Error loading exif data. Image file could be corrupted."
@@ -320,12 +342,18 @@ for i in range(cfg.LOOP_CYCLES):
             timer_kfs.update("STATIC CHECK")
             timer_kfs.print()
 
+    try:
+        logging.info(
+            f"Avearge KFS time: {np.array(kfs_times).mean():.4f} (std {np.array(kfs_times).std():.4f})"
+        )
+    except:
+        pass
+
     # INCREMENTAL RECONSTRUCTION
     kfrms = os.listdir(cfg.KEYFRAMES_DIR)
     kfrms.sort()
 
     if len(kfrms) >= cfg.MIN_KEYFRAME_FOR_INITIALIZATION and newer_imgs == True:
-        timer_loop = utils.AverageTimer(logger=logger)
         timer = utils.AverageTimer(logger=logger)
 
         print()
@@ -789,8 +817,8 @@ for i in range(cfg.LOOP_CYCLES):
         img_batch = []
         oriented_imgs_batch = []
 
-        timer_loop.update("Loop time")
-        timer_loop.print()
+    timer_loop.update("Loop time")
+    loop_times.append(timer_loop.print())
 
     time.sleep(cfg.SLEEP_TIME)
 

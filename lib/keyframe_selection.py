@@ -18,8 +18,8 @@ from lib.local_features import LocalFeatures
 from lib.matching import Matcher, make_match_plot
 from lib.thirdparty.alike.alike import ALike, configs
 
-INNOVATION_THRESH_PIX = 100  # 120
-MIN_MATCHES = 10
+INNOVATION_THRESH_PIX = 80  # 120
+MIN_MATCHES = 5
 RANSAC_THRESHOLD = 10
 RANSAC_ITERATIONS = 1000
 
@@ -86,7 +86,9 @@ class KeyFrameSelector:
 
         if viz_res_path is not None:
             self.viz_res_path = Path(viz_res_path)
-            self.viz_res_path.mkdir(exist_ok=True)
+            if self.viz_res_path.exists():
+                shutil.rmtree(self.viz_res_path)
+            self.viz_res_path.mkdir()
         else:
             self.viz_res_path = None
         self.timer = None
@@ -97,6 +99,7 @@ class KeyFrameSelector:
         self.img2 = None
 
         # Set initial keyframes, descr, mpts to None
+        self.last_keyframe_features = None
         self.kpts1 = None
         self.kpts2 = None
         self.desc1 = None
@@ -140,10 +143,10 @@ class KeyFrameSelector:
             )
         if self.local_feature == "ORB":
             all_keypoints, all_descriptors = local_feature.ORB()
-            self.kpts1 = all_keypoints[0]
-            self.kpts2 = all_keypoints[1]
-            self.desc1 = all_descriptors[0]
-            self.desc2 = all_descriptors[1]
+            self.kpts1 = all_keypoints[0][:, 0:2]
+            self.kpts2 = all_keypoints[1][:, 0:2]
+            self.desc1 = all_descriptors[0][:, 0:32]
+            self.desc2 = all_descriptors[1][:, 0:32]
 
         elif self.local_feature == "ALIKE":
             # Now Alike is implemented independentely from LocalFeatures because the Alike model is loaded only once when the KeyFrameSelector is initialized for speedup the procedure.
@@ -192,6 +195,13 @@ class KeyFrameSelector:
         if self.geometric_verification == "pydegensac":
             try:
                 pydegensac = importlib.import_module("pydegensac")
+                geometric_verification = "pydegensac"
+            except:
+                geometric_verification == "ransac"
+                logging.error("Pydegensac not available.")
+
+        if geometric_verification == "pydegensac":
+            try:
                 F, mask = pydegensac.findFundamentalMatrix(
                     self.mpts1,
                     self.mpts2,
@@ -205,9 +215,8 @@ class KeyFrameSelector:
                 )
                 logger.info(f"Pydegensac found {mask.sum()}/{len(mask)} inliers")
             except:
-                logging.error("Pydegensac not available.")
-                # TODO: implement a fallback to RANSAC
-        elif self.geometric_verification == "ransac":
+                return False
+        elif geometric_verification == "ransac":
             # TODO: move RANSAC to a separate function
             match_dist = np.linalg.norm(self.mpts1 - self.mpts2, axis=1)
             rands = []
@@ -291,11 +300,16 @@ class KeyFrameSelector:
     def run(self, img1: Union[str, Path], img2: Union[str, Path]):
         self.timer = utils.AverageTimer()
 
-        if not self.extract_features(img1, img2):
-            raise RuntimeError("Error in extract_features")
-        if not self.match_features():
-            raise RuntimeError("Error in match_features")
-        keyframe_accepted = self.innovation_check()
+        try:
+            if not self.extract_features(img1, img2):
+                raise RuntimeError("Error in extract_features")
+            if not self.match_features():
+                raise RuntimeError("Error in match_features")
+            keyframe_accepted = self.innovation_check()
+        except RuntimeError as e:
+            keyframe_accepted = False
+            logger.error(e)
+            return self.keyframes_list, self.pointer, self.delta, None
 
         if self.viz_res_path is not None or self.realtime_viz:
             img = cv2.imread(str(self.img2), cv2.IMREAD_UNCHANGED)
@@ -315,7 +329,7 @@ class KeyFrameSelector:
 
         self.clear_matches()
 
-        time = self.timer.print()
+        time = self.timer.print("Keyframe Selection")
 
         return self.keyframes_list, self.pointer, self.delta, time
 
@@ -409,60 +423,125 @@ class KeyFrameSelector:
 
 
 if __name__ == "__main__":
-    img0 = Path("data/MH_01_easy/mav0/cam0/data/1403636579763555584.png")
-    img1 = Path("data/MH_01_easy/mav0/cam0/data/1403636587363555584.png")
+    # img0 = Path("data/MH_01_easy/mav0/cam0/data/1403636579763555584.png")
+    # img1 = Path("data/MH_01_easy/mav0/cam0/data/1403636587363555584.png")
+
+    # keyframes_list = KeyFrameList()
+    # processed_imgs = []
+    # oriented_imgs_batch = []
+    # pointer = 0  # pointer points to the last oriented image
+    # delta = 0  # delta is equal to the number of processed but not oriented imgs
+
+    # timer = utils.AverageTimer()
+
+    # # Test ORB
+    # kfs = KeyFrameSelector(
+    #     keyframes_list=keyframes_list,
+    #     last_keyframe_pointer=pointer,
+    #     last_keyframe_delta=delta,
+    #     local_feature="ORB",
+    #     realtime_viz=False,
+    # )
+    # (
+    #     keyframes_list,
+    #     pointer,
+    #     delta,
+    # ) = kfs.run(img0, img1)
+    # timer.update("orb")
+
+    # # Test ALIKE
+    # alike_cfg = edict(
+    #     {
+    #         "model": "alike-t",
+    #         "device": "cuda",
+    #         "top_k": 512,
+    #         "scores_th": 0.2,
+    #         "n_limit": 5000,
+    #         "subpixel": False,
+    #     }
+    # )
+    # kfs = KeyFrameSelector(
+    #     keyframes_list=keyframes_list,
+    #     last_keyframe_pointer=pointer,
+    #     last_keyframe_delta=delta,
+    #     local_feature="ALIKE",
+    #     local_feature_cfg=alike_cfg,
+    #     realtime_viz=False,
+    # )
+    # (
+    #     keyframes_list,
+    #     pointer,
+    #     delta,
+    # ) = kfs.run(img0, img1)
+    # timer.update("alike")
+
+    # timer.print()
+
+    # # cv2.destroyAllWindows()
+
+    # print("Done")
+
+    image_path = Path("res/ponte_test/img")
+    im_ext = ".JPG"
+    out_dir = Path("res/ponte_test/keyframes")
+
+    img_list = sorted(image_path.glob(f"*{im_ext}"))
+    out_dir.mkdir(exist_ok=True)
 
     keyframes_list = KeyFrameList()
-    processed_imgs = []
-    oriented_imgs_batch = []
     pointer = 0  # pointer points to the last oriented image
     delta = 0  # delta is equal to the number of processed but not oriented imgs
 
-    timer = utils.AverageTimer()
-
-    # Test ORB
-    kfs = KeyFrameSelector(
-        keyframes_list=keyframes_list,
-        last_keyframe_pointer=pointer,
-        last_keyframe_delta=delta,
-        local_feature="ORB",
-        realtime_viz=False,
-    )
-    (
-        keyframes_list,
-        pointer,
-        delta,
-    ) = kfs.run(img0, img1)
-    timer.update("orb")
-
-    # Test ALIKE
     alike_cfg = edict(
         {
             "model": "alike-t",
             "device": "cuda",
-            "top_k": 512,
+            "top_k": 1024,
             "scores_th": 0.2,
             "n_limit": 5000,
             "subpixel": False,
         }
     )
-    kfs = KeyFrameSelector(
+    keyframe_selector = KeyFrameSelector(
         keyframes_list=keyframes_list,
         last_keyframe_pointer=pointer,
         last_keyframe_delta=delta,
-        local_feature="ALIKE",
+        keyframes_dir=out_dir,
+        kfs_method="local_features",
+        geometric_verification="pydegensac",  # "ransac",  #
+        local_feature="ALIKE",  # "ORB",  #
         local_feature_cfg=alike_cfg,
-        realtime_viz=False,
+        n_features=1024,
+        realtime_viz=True,
+        viz_res_path=out_dir / "viz_res",
     )
-    (
-        keyframes_list,
-        pointer,
-        delta,
-    ) = kfs.run(img0, img1)
-    timer.update("alike")
 
-    timer.print()
+    img0 = img_list[0]
+    camera_id = 1
+    image_id = 0
+    shutil.copy(
+        img0,
+        out_dir / f"{img0.name}",
+    )
+    keyframes_list.add_keyframe(
+        KeyFrame(
+            img0,
+            {img0.name},
+            {img0.name},
+            camera_id,
+            image_id,
+        )
+    )
 
-    # cv2.destroyAllWindows()
+    for i, cur_frame in enumerate(img_list[1:]):
+        print(f"Processing {i} of {len(img_list) - 1}")
+
+        last_keyframe = img_list[pointer]
+        (
+            keyframes_list,
+            pointer,
+            delta,
+            dt,
+        ) = keyframe_selector.run(last_keyframe, cur_frame)
 
     print("Done")

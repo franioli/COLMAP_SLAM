@@ -96,7 +96,7 @@ class Matcher:
         Returns:
             np.ndarray: A Boolean array that masks the correspondences that were identified as inliers.
 
-        TODO: allow parameters for both MGAC++ and pydegensac to be passed in (currentely only pydegensac is supported).
+        TODO: allow parameters for both MAGASAC++ and pydegensac to be passed in (currentely only pydegensac is supported).
         TODO: add support for other geometric verification methods.
         """
 

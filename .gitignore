@@ -8,6 +8,9 @@ matches_plot/
 keyframes/
 config.ini
 kfs_matches/
+res/
+test/
+
 
 # VScode
 # .vscode/
