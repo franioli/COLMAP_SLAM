@@ -208,8 +208,8 @@ keyframe_selector = KeyFrameSelector(
     local_feature="ALIKE",  # "ORB",  #
     local_feature_cfg=alike_cfg,
     n_features=cfg.KFS_N_FEATURES,
-    realtime_viz=True,
-    viz_res_path="kfs_matches",
+    realtime_viz=False,  # True,
+    viz_res_path=None,  # "kfs_matches",
 )
 
 # If the camera coordinates are known from other sensors than gnss,
@@ -237,9 +237,7 @@ kfs_times = []
 
 ### MAIN LOOP
 timer_global = utils.AverageTimer(logger=logger)
-
 while True:
-
     # Get sorted image list available in imgs folders
     imgs = sorted(cfg.IMGS_FROM_SERVER.glob(f"*.{cfg.IMG_FORMAT}"))
 
@@ -249,7 +247,7 @@ while True:
             logging.info("Simulator completed.")
             plot_proc.kill()
             break
-    else: 
+    else:
         # Make exit condition when using server
         pass
 
@@ -290,7 +288,6 @@ while True:
 
             print("")
             logger.info(f"pointer {pointer} c {c}")
-            timer_kfs = utils.AverageTimer(logger=logger)
 
             img1 = imgs[pointer]
             img2 = img
@@ -349,8 +346,6 @@ while True:
 
             processed_imgs.append(img)
             processed += 1
-            timer_kfs.update("STATIC CHECK")
-            timer_kfs.print()
 
     # try:
     #     logging.info(
@@ -367,7 +362,6 @@ while True:
         timer = utils.AverageTimer(logger=logger)
 
         print()
-        logger.info(f"[LOOP : {i}]")
         logger.info(f"DYNAMIC MATCHING WINDOW: {cfg.SEQUENTIAL_OVERLAP}")
         print()
 
@@ -827,15 +821,14 @@ while True:
         img_batch = []
         oriented_imgs_batch = []
 
-    timer_global.update()
-
+    timer_global.update(f"{len(kfrms)}")
     time.sleep(cfg.SLEEP_TIME)
 
-loop_times = timer_global.get_times()
 average_loop_time = timer_global.get_average_time()
 total_time = timer_global.get_total_time()
-timer_global.print("Timer global")
+# timer_global.print("Timer global")
 
-print("Total time: ", total_time)
-print(f"Average loop time: {average_loop_time:.3f} s")
+logging.info(f"Average loop time: {average_loop_time:.4f} s")
+logging.info(f"Total time: {total_time:.4f} s")
+
 print("Done.")

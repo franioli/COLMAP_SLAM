@@ -63,10 +63,12 @@ class AverageTimer:
     def get_times(self):
         return self.times
 
-    def get_average_time(self, name=""):
+    def get_average_time(self, name=None):
         times = []
         for key, val in self.times.items():
-            if key.startswith(name):
+            if name is None:
+                times.append(val)
+            elif key.startswith(name):
                 times.append(val)
         return sum(times) / len(times)
 
