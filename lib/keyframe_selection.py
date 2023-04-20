@@ -121,7 +121,7 @@ class KeyFrameSelector:
         self.delta = last_keyframe_delta
 
     def clear_matches(self) -> None:
-        # Now it is executed for safety reasons by self.run() at the end of the keyframeselection process... it may be removed if we want to keep track of the previous matched
+        # NOTE: Now it is executed for safety reasons by self.run() at the end of the keyframeselection process... it may be removed if we want to keep track of the previous matched
         self.kpts1 = None
         self.kpts2 = None
         self.desc1 = None
@@ -131,11 +131,11 @@ class KeyFrameSelector:
         self.median_match_dist = None
 
     def extract_features(self, img1: Union[str, Path], img2: Union[str, Path]) -> bool:
+        # TODO: to speed up the procedure, keep the keypoints and descriptors of the last keyframe in memory, instead of extracting them again
+
         self.img1 = Path(img1)
         self.img2 = Path(img2)
 
-        # if self.method == "local_features":
-        # local_feature = LocalFeatures(self.n_features, self.local_feature)
         if self.local_feature == "ORB":
             all_keypoints, all_descriptors = self.feature_extractor.ORB([img1, img2])
             self.kpts1 = all_keypoints[img1.stem][:, 0:2]
@@ -144,7 +144,7 @@ class KeyFrameSelector:
             self.desc2 = all_descriptors[img2.stem][:, 0:32]
 
         elif self.local_feature == "ALIKE":
-            # TODO: to speed up the procedure, keep the keypoints and descriptors of the last keyframe in memory, instead of extracting them again
+
             all_keypoints, all_descriptors = self.feature_extractor.ALIKE([img1, img2])
             self.kpts1 = all_keypoints[img1.stem]
             self.kpts2 = all_keypoints[img2.stem]
