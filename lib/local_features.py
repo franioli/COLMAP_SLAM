@@ -1,7 +1,10 @@
-from typing import List, Tuple, Union
 from pathlib import Path
-import numpy as np
+from typing import List, Tuple, Union
+
 import cv2
+import numpy as np
+
+from lib.thirdparty.alike.alike import ALike, configs
 
 
 class LocalFeatures:
@@ -10,10 +13,22 @@ class LocalFeatures:
         imgs: List[str],
         n_features: int,
         method: str,
+        cfg: dict,
     ) -> None:
         self.imgs = imgs
         self.n_features = n_features
         self.method = method
+        self.cfg = cfg
+
+        # If method is ALIKE, load Alike model weights
+        if self.method == "ALIKE":
+            self.model = ALike(
+                **configs[self.cfg.model],
+                device=self.cfg.device,
+                top_k=self.cfg.top_k,
+                scores_th=self.cfg.scores_th,
+                n_limit=self.cfg.n_limit,
+            )
 
     def ORB(self) -> Tuple[List[np.ndarray], List[np.ndarray]]:
         all_kpts = []
@@ -43,8 +58,17 @@ class LocalFeatures:
 
         return all_kpts, all_descriptors
 
-    def AlIKe(self):
-        print("TO BE IMPLEMENTED")
+    def ALIKE(self, images: List[Path]):
+        all_kpts = []
+        all_descriptors = []
+        for im_path in images:
+            img = cv2.cvtColor(cv2.imread(str(self.im_path)), cv2.COLOR_BGR2RGB)
+            features = self.model(img, sub_pixel=self.cfg.subpixel)
+
+            all_kpts.append(features["keypoints"])
+            all_descriptors.append(features["descriptors"])
+
+        return all_kpts, all_descriptors
 
     def run(self):
         if self.method == "ORB":

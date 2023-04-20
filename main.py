@@ -186,6 +186,9 @@ one_time = False  # It becomes true after the first batch of images is oriented
 # At following epochs the photogrammetric model will be reported in this ref system.
 reference_imgs = []
 
+# Make plot
+PLOT_TRJECTORY = False
+
 # Setup keyframe selector
 # TODO: move ALIKE config in config.ini file
 alike_cfg = edict(
@@ -231,7 +234,8 @@ else:
 
 # Set-up plotqq
 # create_plot()
-plot_proc = subprocess.Popen(["python3", "./plot.py"])
+if PLOT_TRJECTORY:
+    plot_proc = subprocess.Popen(["python3", "./plot.py"])
 
 kfs_times = []
 
@@ -245,7 +249,8 @@ while True:
     if cfg.USE_SERVER == False:
         if stream_proc.poll() is not None:
             logging.info("Simulator completed.")
-            plot_proc.kill()
+            if PLOT_TRJECTORY:
+                plot_proc.kill()
             break
     else:
         # Make exit condition when using server
