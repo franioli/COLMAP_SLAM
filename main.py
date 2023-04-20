@@ -236,19 +236,22 @@ plot_proc = subprocess.Popen(["python3", "./plot.py"])
 kfs_times = []
 
 ### MAIN LOOP
-loop_times = []
-for i in range(cfg.LOOP_CYCLES):
-    timer_global = utils.AverageTimer(logger=logger)
+timer_global = utils.AverageTimer(logger=logger)
+
+while True:
 
     # Get sorted image list available in imgs folders
     imgs = sorted(cfg.IMGS_FROM_SERVER.glob(f"*.{cfg.IMG_FORMAT}"))
 
     # If using the simulator, check if process is still alive, otherwise quit
     if cfg.USE_SERVER == False:
-        if stream_proc.poll() is not None: 
+        if stream_proc.poll() is not None:
             logging.info("Simulator completed.")
             plot_proc.kill()
             break
+    else: 
+        # Make exit condition when using server
+        pass
 
     img_batch = []
 
@@ -298,10 +301,9 @@ for i in range(cfg.LOOP_CYCLES):
                 keyframes_list,
                 pointer,
                 delta,
-                # _,
-                dt,
+                kfs_time,
             ) = keyframe_selector.run(img1, img2)
-            kfs_times.append(dt)
+            # kfs_times.append(kfs_time)
 
             # Set if new keyframes are added
             new_n_keyframes = len(os.listdir(cfg.KEYFRAMES_DIR))
@@ -350,12 +352,12 @@ for i in range(cfg.LOOP_CYCLES):
             timer_kfs.update("STATIC CHECK")
             timer_kfs.print()
 
-    try:
-        logging.info(
-            f"Avearge KFS time: {np.array(kfs_times).mean():.4f} (std {np.array(kfs_times).std():.4f})"
-        )
-    except:
-        pass
+    # try:
+    #     logging.info(
+    #         f"Avearge KFS time: {np.array(kfs_times).mean():.4f} (std {np.array(kfs_times).std():.4f})"
+    #     )
+    # except:
+    #     pass
 
     # INCREMENTAL RECONSTRUCTION
     kfrms = os.listdir(cfg.KEYFRAMES_DIR)
@@ -825,7 +827,7 @@ for i in range(cfg.LOOP_CYCLES):
         img_batch = []
         oriented_imgs_batch = []
 
-    timer_global.update("Loop time")
+    timer_global.update()
 
     time.sleep(cfg.SLEEP_TIME)
 

@@ -61,16 +61,16 @@ class AverageTimer:
         return total
 
     def get_times(self):
-        return dict(self.times)
+        return self.times
 
-    def get_average_time(self, name):
+    def get_average_time(self, name=""):
         times = []
         for key, val in self.times.items():
             if key.startswith(name):
                 times.append(val)
         return sum(times) / len(times)
 
-    def get_total(self):
+    def get_total_time(self):
         total = 0.0
         for key, val in self.times.items():
             if self.will_print[key]:
